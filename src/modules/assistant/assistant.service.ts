@@ -16,7 +16,7 @@ import { buildSystemPrompt } from './system-prompt.js';
 
 const HISTORY_LIMIT = 20;
 const MAX_STEPS = 5;
-const MAX_OUTPUT_TOKENS = 1500;
+const MAX_OUTPUT_TOKENS = 8192; // includes the model's thinking tokens; 1500 cut answers mid-sentence
 
 @Injectable()
 export class AssistantService {
@@ -92,6 +92,7 @@ export class AssistantService {
       stopWhen: stepCountIs(MAX_STEPS),
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       temperature: 0.2,
+      providerOptions: this.models.providerOptions,
       abortSignal: p.signal,
       // Fail with a clear error instead of hanging when the model does not answer.
       timeout: { totalMs: 110_000, firstChunkMs: 45_000 },
@@ -111,6 +112,11 @@ export class AssistantService {
           (error as Error)?.stack ?? String(error),
         ),
       onEnd: async (e) => {
+        if (e.finishReason === 'length') {
+          this.log.warn(
+            `Answer cut off at the output token limit (${MAX_OUTPUT_TOKENS})`,
+          );
+        }
         await this.chats.add(session.id, {
           role: 'ASSISTANT',
           content: e.text,

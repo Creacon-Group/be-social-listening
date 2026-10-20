@@ -22,6 +22,14 @@ export class ModelProvider {
     return this.modelId ?? 'unset';
   }
 
+  /**
+   * Gemini 3 "thinking" tokens count toward maxOutputTokens. Low thinking keeps answers fast
+   * and leaves room for the text itself.
+   */
+  get providerOptions() {
+    return { google: { thinkingConfig: { thinkingLevel: 'low' as const } } };
+  }
+
   get(): LanguageModel {
     if (!this.apiKey || !this.modelId) {
       throw new ServiceUnavailableException(
