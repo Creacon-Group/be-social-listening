@@ -70,6 +70,7 @@ export class AssistantService {
     if (!session.title)
       await this.chats.setTitle(session.id, p.text.slice(0, 60));
 
+    let started = Date.now();
     const result = streamText({
       model,
       system: buildSystemPrompt({
@@ -92,6 +93,18 @@ export class AssistantService {
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       temperature: 0.2,
       abortSignal: p.signal,
+      // Fail with a clear error instead of hanging when the model does not answer.
+      timeout: { totalMs: 110_000, firstChunkMs: 45_000 },
+      onLanguageModelCallStart: () => {
+        started = Date.now();
+        this.log.log(`Model call → ${this.models.id}`);
+      },
+      onLanguageModelCallEnd: (e) =>
+        this.log.log(
+          `Model call ← ${e.finishReason} in ${Date.now() - started} ms`,
+        ),
+      onToolExecutionEnd: (e) =>
+        this.log.log(`Tool ${e.toolCall.toolName} ${e.toolExecutionMs} ms`),
       onError: ({ error }) =>
         this.log.error(
           'LLM stream error',
