@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createReadStream } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { Env } from '../../../../config/env.js';
@@ -61,9 +60,14 @@ export class FileStore {
   async open(fileUrl: string): Promise<Readable> {
     this.assertTrusted(fileUrl);
     if (fileUrl.startsWith(LOCAL_PREFIX)) {
-      return createReadStream(
+      // Open first so a missing file fails this call (and the batch) instead of
+      // emitting an unhandled stream 'error' that would crash the process.
+      const file = await open(
         path.join(this.uploadDir, fileUrl.slice(LOCAL_PREFIX.length)),
-      );
+      ).catch(() => {
+        throw new Error('File upload tidak ditemukan di server. Unggah ulang file.');
+      });
+      return file.createReadStream();
     }
     const res = await fetch(fileUrl, {
       headers: this.blobToken

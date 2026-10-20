@@ -75,7 +75,7 @@ const BRANDS: {
   {
     name: 'Telkomsel',
     isOwn: false,
-    color: '#64748B',
+    color: '#8B95A7',
     aliases: [
       'Activation Telkomsel',
       'by.U',
@@ -102,7 +102,7 @@ const BRANDS: {
   {
     name: 'XL',
     isOwn: false,
-    color: '#2563EB',
+    color: '#6C8EBF',
     aliases: [
       'XL Axiata',
       'Axis',
@@ -128,7 +128,7 @@ const BRANDS: {
   {
     name: 'Smartfren',
     isOwn: false,
-    color: '#F59E0B',
+    color: '#C9A35B',
     aliases: [
       'Smartfrencare',
       'Smartfren 4G',
