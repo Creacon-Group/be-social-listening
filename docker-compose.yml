@@ -3,6 +3,8 @@
 services:
   mysql:
     image: mysql:8.0
+    # Prisma's migrate engine cannot log in with caching_sha2_password over plain TCP.
+    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_DATABASE: social_listening
       MYSQL_USER: sl
