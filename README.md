@@ -6,7 +6,7 @@ Stack: NestJS 12 (ESM) · Prisma 7 + MySQL (`@prisma/adapter-mariadb`) · AI SDK
 
 ## Local setup
 
-Requires Node 20+ and npm 11 (npm 10.9 fails on this dependency tree with `Cannot read properties of null (reading 'edgesOut')`).
+Requires Node 22.12+ (or 20.19+) and npm 11 (npm 10.9 fails on this dependency tree with `Cannot read properties of null (reading 'edgesOut')`).
 
 ```bash
 cp .env.example .env            # fill JWT_SECRET, SEED_ADMIN_*; DATABASE_URL points at local MySQL
