@@ -11,7 +11,7 @@ import {
 import { MentionsService } from '../mentions/mentions.service.js';
 import { type AssistantDataPort, buildTools } from './assistant-tools.js';
 import { ChatRepository } from './chat.repository.js';
-import { ModelProvider } from './model.provider.js';
+import { isCapacityError, ModelProvider } from './model.provider.js';
 import { buildSystemPrompt } from './system-prompt.js';
 
 const HISTORY_LIMIT = 20;
@@ -96,6 +96,9 @@ export class AssistantService {
       abortSignal: p.signal,
       // Fail with a clear error instead of hanging when the model does not answer.
       timeout: { totalMs: 110_000, firstChunkMs: 45_000 },
+      // Gemini sometimes drops an answer mid-stream ("high demand"). Rerun that step once; with
+      // GEMINI_FALLBACK_MODEL set, the rerun goes to the fallback model (see onError).
+      streamRetries: 1,
       onLanguageModelCallStart: () => {
         started = Date.now();
         this.log.log(`Model call → ${this.models.id}`);
@@ -106,11 +109,13 @@ export class AssistantService {
         ),
       onToolExecutionEnd: (e) =>
         this.log.log(`Tool ${e.toolCall.toolName} ${e.toolExecutionMs} ms`),
-      onError: ({ error }) =>
+      onError: ({ error }) => {
         this.log.error(
           'LLM stream error',
-          (error as Error)?.stack ?? String(error),
-        ),
+          (error as Error)?.message ?? String(error),
+        );
+        this.models.reportError(error);
+      },
       onEnd: async (e) => {
         if (e.finishReason === 'length') {
           this.log.warn(
@@ -131,8 +136,10 @@ export class AssistantService {
     });
 
     await result.pipeUIMessageStreamToResponse(p.res, {
-      onError: () =>
-        'Maaf, AI Assistant sedang bermasalah. Coba lagi sebentar.',
+      onError: (error) =>
+        isCapacityError(error)
+          ? 'Model AI sedang sibuk di sisi Google. Coba kirim ulang sebentar lagi.'
+          : 'Maaf, AI Assistant sedang bermasalah. Coba lagi sebentar.',
     });
   }
 }

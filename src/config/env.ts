@@ -21,6 +21,8 @@ const envSchema = z.object({
   // Gemini. When GEMINI_API_KEY is missing, the assistant endpoints answer 503.
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
+  // Used for a few minutes when GEMINI_MODEL answers "high demand" / overloaded.
+  GEMINI_FALLBACK_MODEL: z.string().optional(),
 
   // Excel ingestion.
   UPLOAD_DIR: z.string().default('./uploads'), // Docker/PM2 mode: multipart uploads land here
