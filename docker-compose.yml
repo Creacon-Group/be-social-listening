@@ -1,0 +1,32 @@
+# Local MySQL for development, and an example VPS setup (api + mysql).
+# Dev only needs the database:  docker compose up -d mysql
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: social_listening
+      MYSQL_USER: sl
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sl_local_pw}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_local_pw}
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  api:
+    build: .
+    profiles: ['vps']
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql://sl:${MYSQL_PASSWORD:-sl_local_pw}@mysql:3306/social_listening?allowPublicKeyRetrieval=true
+      NODE_ENV: production
+    ports:
+      - '3001:3001'
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      - mysql
+
+volumes:
+  mysql-data:
+  uploads:

@@ -1,0 +1,248 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "mysql"
+  // Uncomment if your MySQL provider does not support foreign keys:
+  // relationMode = "prisma"
+}
+
+// ───────── Enums ─────────
+enum Channel {
+  X
+  TIKTOK
+  INSTAGRAM
+  ONLINE_NEWS
+  FACEBOOK
+  YOUTUBE
+  BLOG
+}
+
+enum SentimentLabel {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum IngestionSourceType {
+  EXCEL_UPLOAD
+  API_PULL
+  API_WEBHOOK
+}
+
+enum BatchStatus {
+  PENDING
+  PROCESSING
+  PAUSED
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum UserRole {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+}
+
+// ───────── Access & master data ─────────
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique @db.VarChar(190)
+  name         String   @db.VarChar(120)
+  passwordHash String   @db.VarChar(100)
+  role         UserRole @default(ANALYST)
+  createdAt    DateTime @default(now())
+
+  memberships  ProjectMember[]
+  batches      IngestionBatch[]
+  chatSessions ChatSession[]
+
+  @@map("users")
+}
+
+model Project {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(200)
+  slug        String   @unique @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now())
+
+  members      ProjectMember[]
+  brands       Brand[]
+  mentions     Mention[]
+  batches      IngestionBatch[]
+  chatSessions ChatSession[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  userId    Int
+  projectId Int
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+model Brand {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  name      String   @db.VarChar(120)
+  isOwn     Boolean  @default(false) // true = our brand, false = competitor
+  color     String?  @db.VarChar(9)
+  aliases   Json? // keywords (exact, case-insensitive) from the Zanroo Keyword column
+  createdAt DateTime @default(now())
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mentions MentionBrand[]
+
+  @@unique([projectId, name])
+  @@map("brands")
+}
+
+// ───────── Raw social listening data ─────────
+model Mention {
+  id         Int                 @id @default(autoincrement())
+  projectId  Int
+  batchId    Int?
+  externalId String              @db.VarChar(100) // Zanroo MID / API id
+  sourceType IngestionSourceType
+  channel    Channel
+  postType   String?             @db.VarChar(20) // Commented, Tweeted, Posted, Quoted, Shared
+
+  title       String?  @db.VarChar(500)
+  content     String?  @db.Text // can be empty (emoji/sticker comments)
+  url         String?  @db.VarChar(1000)
+  publishedAt DateTime // UTC
+  ingestedAt  DateTime @default(now())
+
+  authorHandle    String? @db.VarChar(150)
+  authorName      String? @db.VarChar(200)
+  authorFollowers Int?
+  authorVerified  Boolean @default(false)
+
+  likes       Int @default(0)
+  shares      Int @default(0)
+  comments    Int @default(0)
+  views       Int @default(0)
+  reach       Int @default(0) // EstimatedReach
+  engagements Int @default(0) // total engagement reported by the source
+
+  sentimentLabel SentimentLabel
+  sentimentScore Decimal?       @db.Decimal(4, 3) // optional; Zanroo exports only have labels
+
+  location String? @db.VarChar(200)
+  tags     Json? // Zanroo Tag column (issues/topics)
+  extra    Json? // Where, Country, Types, category labels set to 1
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  batch   IngestionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  brands  MentionBrand[]
+
+  @@unique([projectId, externalId]) // ingestion idempotency key
+  @@index([projectId, publishedAt])
+  @@index([projectId, channel, publishedAt])
+  @@index([projectId, sentimentLabel, publishedAt])
+  @@index([batchId])
+  @@map("mentions")
+}
+
+model MentionBrand {
+  mentionId Int
+  brandId   Int
+  mention   Mention @relation(fields: [mentionId], references: [id], onDelete: Cascade)
+  brand     Brand   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@id([mentionId, brandId])
+  @@index([brandId])
+  @@map("mention_brands")
+}
+
+// ───────── Ingestion audit trail ─────────
+model IngestionBatch {
+  id               Int                 @id @default(autoincrement())
+  projectId        Int
+  createdById      Int?
+  sourceType       IngestionSourceType
+  fileName         String?             @db.VarChar(255)
+  sourceInput      Json? // adapter input, e.g. { fileUrl }, so the batch can be resumed
+  status           BatchStatus         @default(PENDING)
+  processedRows    Int                 @default(0) // last persisted position (for resume)
+  insertedRows     Int                 @default(0)
+  skippedRows      Int                 @default(0) // duplicates
+  failedRows       Int                 @default(0)
+  unmappedKeywords Json? // keywords on rows without a brand: { keyword: count }
+  errorMessage     String?             @db.VarChar(500)
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  project   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  mentions  Mention[]
+  errors    IngestionRowError[]
+
+  @@index([projectId, createdAt])
+  @@map("ingestion_batches")
+}
+
+model IngestionRowError {
+  id      Int    @id @default(autoincrement())
+  batchId Int
+  rowRef  String @db.VarChar(100) // Excel row number / API item id
+  message String @db.VarChar(500)
+  raw     Json?
+
+  batch IngestionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@map("ingestion_row_errors")
+}
+
+// ───────── AI Brand Assistant ─────────
+model ChatSession {
+  id        String   @id @default(uuid()) @db.Char(36) // session_id
+  userId    Int
+  projectId Int
+  title     String?  @db.VarChar(200)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project  Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, projectId, updatedAt])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id              Int      @id @default(autoincrement())
+  sessionId       String   @db.Char(36)
+  role            ChatRole
+  content         String   @db.Text
+  filtersSnapshot Json? // active dashboard filter when the question was asked
+  toolCalls       Json? // tools called + arguments (answer audit)
+  model           String?  @db.VarChar(80)
+  inputTokens     Int?
+  outputTokens    Int?
+  createdAt       DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
+}

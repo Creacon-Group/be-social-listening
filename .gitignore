@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# build
+dist/
+*.tsbuildinfo
+
+# generated Prisma client (run `npm run prisma:generate`)
+src/generated/
+
+# env
+.env
+.env.*
+!.env.example
+
+# local uploads (Docker/PM2 mode)
+uploads/
+
+# logs
+*.log
+npm-debug.log*
+
+# misc
+.DS_Store
+coverage/
+.vercel
