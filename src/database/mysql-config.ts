@@ -24,6 +24,7 @@ export function mysqlConfigFromUrl(databaseUrl: string): PoolConfig {
           }
         : undefined,
     allowPublicKeyRetrieval: flag('allowPublicKeyRetrieval'),
+    connectTimeout: 10_000, // remote TLS handshakes (TiDB Cloud) can exceed the 1 s default
     timezone: 'Z',
   };
 }
