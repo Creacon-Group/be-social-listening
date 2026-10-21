@@ -47,4 +47,5 @@ async function bootstrap() {
 
   await app.listen(config.get('PORT', { infer: true }));
 }
-await bootstrap();
+// No top-level await: Vercel loads this file with require(), which rejects ESM graphs that use it.
+void bootstrap();
