@@ -11,7 +11,6 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import {
   IsNotEmpty,
@@ -25,6 +24,7 @@ import { type AuthUser, CurrentUser } from '../../common/auth.js';
 import { MentionFilterDto } from '../mentions/mention-filter.js';
 import { AssistantService } from './assistant.service.js';
 import { ChatRepository } from './chat.repository.js';
+import { RateLimit } from '../../common/rate-limit.js';
 
 class ChatRequestDto {
   @IsString()
@@ -83,7 +83,7 @@ export class AssistantController {
 
   /** Streams the answer as an AI SDK UI message stream (SSE), compatible with useChat on the FE. */
   @Post('sessions/:sessionId/chat')
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @RateLimit(20)
   async chat(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,

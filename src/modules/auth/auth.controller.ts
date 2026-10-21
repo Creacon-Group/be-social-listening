@@ -10,7 +10,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 import bcrypt from 'bcryptjs';
 import { IsEmail, IsString, MaxLength } from 'class-validator';
 import type { Response } from 'express';
@@ -22,6 +21,7 @@ import {
 } from '../../common/auth.js';
 import type { Env } from '../../config/env.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { RateLimit } from '../../common/rate-limit.js';
 
 class LoginDto {
   @IsEmail() email!: string;
@@ -40,7 +40,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @RateLimit(10)
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
