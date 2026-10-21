@@ -112,6 +112,11 @@ export class AssistantService {
         this.log.log(
           `Model call ← ${e.finishReason} in ${Date.now() - started} ms`,
         ),
+      // The gateway answers with the model that actually served the call (e.g. after a combo fallback).
+      onStepEnd: (step) =>
+        this.log.log(
+          `Step ${step.stepNumber} answered by ${step.response.modelId} (${step.finishReason})`,
+        ),
       onToolExecutionEnd: (e) =>
         this.log.log(`Tool ${e.toolCall.toolName} ${e.toolExecutionMs} ms`),
       onError: ({ error }) => {
@@ -136,7 +141,7 @@ export class AssistantService {
           toolCalls: e.steps.flatMap((s) =>
             s.toolCalls.map((c) => ({ name: c.toolName, input: c.input })),
           ),
-          model: this.models.id,
+          model: e.response.modelId || this.models.id, // actual model, not the combo name
           inputTokens: e.totalUsage.inputTokens,
           outputTokens: e.totalUsage.outputTokens,
         });
