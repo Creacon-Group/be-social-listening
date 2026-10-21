@@ -2,7 +2,8 @@ import type { PoolConfig } from 'mariadb';
 
 /**
  * DATABASE_URL -> mariadb driver options (Prisma 7 talks to MySQL through @prisma/adapter-mariadb).
- * Query params: connection_limit, ssl=true (managed MySQL such as PlanetScale/TiDB),
+ * Query params: connection_limit, sslaccept=strict or ssl=true (managed MySQL such as TiDB Cloud;
+ * sslaccept is what Prisma Migrate understands, so prefer it),
  * allowPublicKeyRetrieval=true (local MySQL 8 without TLS).
  */
 export function mysqlConfigFromUrl(databaseUrl: string): PoolConfig {
@@ -15,7 +16,13 @@ export function mysqlConfigFromUrl(databaseUrl: string): PoolConfig {
     password: decodeURIComponent(url.password),
     database: url.pathname.slice(1),
     connectionLimit: Number(url.searchParams.get('connection_limit') ?? 5),
-    ssl: flag('ssl') ? { rejectUnauthorized: true } : undefined,
+    ssl:
+      flag('ssl') || url.searchParams.has('sslaccept')
+        ? {
+            rejectUnauthorized:
+              url.searchParams.get('sslaccept') !== 'accept_invalid_certs',
+          }
+        : undefined,
     allowPublicKeyRetrieval: flag('allowPublicKeyRetrieval'),
     timezone: 'Z',
   };

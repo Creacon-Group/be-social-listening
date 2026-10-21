@@ -39,7 +39,7 @@ curl -X POST localhost:3001/api/projects/1/ingestion/excel/upload \
 
 ## Deploy
 
-**Vercel (MVP).** Import the repo; Vercel detects NestJS. Set env vars from `.env.example` (`DATABASE_URL` with `?ssl=true` for PlanetScale/TiDB, `JWT_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL`). Run `npm run db:deploy` against the production database from CI or your machine, never at runtime. Large Excel files are uploaded by the browser straight to Vercel Blob and the API receives the URL (`POST /ingestion/excel`), because function request bodies are capped at 4.5 MB. Long files pause near the time limit and are resumed with `POST /ingestion/batches/:id/resume`.
+**Vercel (MVP).** Import the repo; Vercel detects NestJS. Set env vars from `.env.example` (`DATABASE_URL` with `?sslaccept=strict` for TiDB Cloud, `JWT_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL`). Run `npm run db:deploy` against the production database from CI or your machine, never at runtime. Large Excel files are uploaded by the browser straight to Vercel Blob and the API receives the URL (`POST /ingestion/excel`), because function request bodies are capped at 4.5 MB. Long files pause near the time limit and are resumed with `POST /ingestion/batches/:id/resume`.
 
 **VPS (Biznet).** `docker compose --profile vps up -d --build`, or PM2 with `ecosystem.config.cjs`. Uses the multipart upload endpoint; no time budget applies.
 
