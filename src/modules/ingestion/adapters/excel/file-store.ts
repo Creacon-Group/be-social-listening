@@ -65,7 +65,9 @@ export class FileStore {
       const file = await open(
         path.join(this.uploadDir, fileUrl.slice(LOCAL_PREFIX.length)),
       ).catch(() => {
-        throw new Error('File upload tidak ditemukan di server. Unggah ulang file.');
+        throw new Error(
+          'File upload tidak ditemukan di server. Unggah ulang file.',
+        );
       });
       return file.createReadStream();
     }

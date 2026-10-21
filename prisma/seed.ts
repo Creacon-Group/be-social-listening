@@ -184,11 +184,11 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email },
-    update: {},
+    update: { role: 'SUPERADMIN' }, // the seed account is Creacon's own: manages AI credits
     create: {
       email,
       name: 'Admin',
-      role: 'ADMIN',
+      role: 'SUPERADMIN',
       passwordHash: await bcrypt.hash(password, 12),
     },
   });

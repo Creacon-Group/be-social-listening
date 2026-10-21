@@ -20,6 +20,10 @@ export const AUTH_COOKIE = 'sl_token';
 export const IS_PUBLIC = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 
+/** ADMIN and SUPERADMIN see every project. */
+export const seesAllProjects = (role: UserRole) =>
+  role === 'ADMIN' || role === 'SUPERADMIN';
+
 export const ROLES = 'roles';
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES, roles);
 

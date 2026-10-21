@@ -43,6 +43,7 @@ enum BatchStatus {
 }
 
 enum UserRole {
+  SUPERADMIN // Creacon internal: everything ADMIN can, plus managing AI credits; no credit limit
   ADMIN
   ANALYST
   VIEWER
@@ -55,16 +56,19 @@ enum ChatRole {
 
 // ───────── Access & master data ─────────
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique @db.VarChar(190)
-  name         String   @db.VarChar(120)
-  passwordHash String   @db.VarChar(100)
-  role         UserRole @default(ANALYST)
-  createdAt    DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  email            String   @unique @db.VarChar(190)
+  name             String   @db.VarChar(120)
+  passwordHash     String   @db.VarChar(100)
+  role             UserRole @default(ANALYST)
+  /// AI Assistant answers allowed per WIB day. Reset daily at 00:00 WIB.
+  dailyChatCredits Int      @default(5)
+  createdAt        DateTime @default(now())
 
   memberships  ProjectMember[]
   batches      IngestionBatch[]
   chatSessions ChatSession[]
+  chatUsage    ChatUsage[]
 
   @@map("users")
 }
@@ -213,6 +217,19 @@ model IngestionRowError {
 }
 
 // ───────── AI Brand Assistant ─────────
+/// AI Assistant usage per user per WIB day. Available today = user.dailyChatCredits + bonus - used.
+model ChatUsage {
+  userId Int
+  day    DateTime @db.Date // WIB calendar day
+  used   Int      @default(0) // answered questions
+  bonus  Int      @default(0) // extra credits a superadmin granted for this day only
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@map("chat_usage")
+}
+
 model ChatSession {
   id        String   @id @default(uuid()) @db.Char(36) // session_id
   userId    Int

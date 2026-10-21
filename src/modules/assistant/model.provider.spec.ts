@@ -79,3 +79,20 @@ describe('ModelProvider fallback', () => {
     expect(provider.id).toBe('fallback');
   });
 });
+
+describe('ModelProvider gateway mode', () => {
+  it('uses the OpenAI-compatible gateway when AI_BASE_URL is set', () => {
+    const env: Record<string, string> = {
+      AI_BASE_URL: 'https://router.example.com/v1',
+      AI_API_KEY: 'k',
+      AI_MODEL: 'social-listening-combo',
+      GEMINI_API_KEY: 'ignored',
+      GEMINI_MODEL: 'ignored',
+    };
+    const provider = new ModelProvider({ get: (k: string) => env[k] } as never);
+    const model = provider.get();
+    expect(provider.id).toBe('social-listening-combo');
+    expect(model.provider).toContain('gateway');
+    expect(provider.providerOptions).toBeUndefined();
+  });
+});

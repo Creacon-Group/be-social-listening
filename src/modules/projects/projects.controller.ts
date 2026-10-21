@@ -8,7 +8,12 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, IsArray, IsString, MaxLength } from 'class-validator';
-import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
+import {
+  type AuthUser,
+  CurrentUser,
+  Roles,
+  seesAllProjects,
+} from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
 
 class UpdateAliasesDto {
@@ -27,8 +32,9 @@ export class ProjectsController {
   @Get()
   async list(@CurrentUser() user: AuthUser) {
     return this.prisma.project.findMany({
-      where:
-        user.role === 'ADMIN' ? {} : { members: { some: { userId: user.id } } },
+      where: seesAllProjects(user.role)
+        ? {}
+        : { members: { some: { userId: user.id } } },
       select: { id: true, name: true, slug: true, description: true },
       orderBy: { name: 'asc' },
     });

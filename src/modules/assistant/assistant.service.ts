@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { type ModelMessage, stepCountIs, streamText } from 'ai';
 import type { Response } from 'express';
 import { PrismaService } from '../../database/prisma.service.js';
+import type { UserRole } from '../../generated/prisma/client.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
 import {
   FilterResolver,
@@ -10,6 +11,7 @@ import {
 } from '../mentions/mention-filter.js';
 import { MentionsService } from '../mentions/mentions.service.js';
 import { type AssistantDataPort, buildTools } from './assistant-tools.js';
+import { ChatCreditsService } from './chat-credits.service.js';
 import { ChatRepository } from './chat.repository.js';
 import { isCapacityError, ModelProvider } from './model.provider.js';
 import { buildSystemPrompt } from './system-prompt.js';
@@ -26,6 +28,7 @@ export class AssistantService {
   constructor(
     private readonly models: ModelProvider,
     private readonly chats: ChatRepository,
+    private readonly credits: ChatCreditsService,
     private readonly filters: FilterResolver,
     private readonly prisma: PrismaService,
     analytics: AnalyticsService,
@@ -40,6 +43,7 @@ export class AssistantService {
 
   async chat(p: {
     userId: number;
+    role: UserRole;
     projectId: number;
     sessionId: string;
     text: string;
@@ -47,7 +51,8 @@ export class AssistantService {
     res: Response;
     signal: AbortSignal;
   }) {
-    const model = this.models.get(); // 503 before anything is streamed when Gemini is not configured
+    const model = this.models.get(); // 503 before anything is streamed when the AI is not configured
+    await this.credits.assertAvailable(p.userId, p.role); // 429 when today's credits are used up
     const session = await this.chats.findOwned(
       p.sessionId,
       p.userId,
@@ -122,6 +127,9 @@ export class AssistantService {
             `Answer cut off at the output token limit (${MAX_OUTPUT_TOKENS})`,
           );
         }
+        // Charge only a real answer; an empty or failed one costs no credit.
+        if (e.text.trim() && e.finishReason !== 'error')
+          await this.credits.consume(p.userId);
         await this.chats.add(session.id, {
           role: 'ASSISTANT',
           content: e.text,

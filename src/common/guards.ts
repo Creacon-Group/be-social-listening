@@ -15,6 +15,7 @@ import {
   AuthedRequest,
   AuthUser,
   IS_PUBLIC,
+  seesAllProjects,
   ROLES,
 } from './auth.js';
 
@@ -77,12 +78,14 @@ export class RolesGuard implements CanActivate {
     );
     if (!roles?.length) return true;
     const user = ctx.switchToHttp().getRequest<AuthedRequest>().user;
-    if (!user || !roles.includes(user.role)) throw new ForbiddenException();
+    // SUPERADMIN passes every role check.
+    if (!user || (user.role !== 'SUPERADMIN' && !roles.includes(user.role)))
+      throw new ForbiddenException();
     return true;
   }
 }
 
-/** Global: any route with a :projectId param requires membership (ADMIN sees every project). */
+/** Global: any route with a :projectId param requires membership (ADMIN/SUPERADMIN see every project). */
 @Injectable()
 export class ProjectAccessGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
@@ -94,7 +97,7 @@ export class ProjectAccessGuard implements CanActivate {
 
     const projectId = Number(raw);
     if (!Number.isInteger(projectId)) throw new NotFoundException();
-    if (req.user.role === 'ADMIN') {
+    if (seesAllProjects(req.user.role)) {
       const exists = await this.prisma.project.count({
         where: { id: projectId },
       });

@@ -97,6 +97,7 @@ export class AssistantController {
     });
     await this.assistant.chat({
       userId: user.id,
+      role: user.role,
       projectId,
       sessionId,
       text: dto.text,

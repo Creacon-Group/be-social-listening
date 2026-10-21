@@ -18,11 +18,21 @@ const envSchema = z.object({
   // Comma-separated list of allowed browser origins (only needed when the FE calls the BE cross-origin).
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 
-  // Gemini. When GEMINI_API_KEY is missing, the assistant endpoints answer 503.
+  // AI via an OpenAI-compatible gateway (9Router, OpenRouter, LiteLLM...). When AI_BASE_URL is set
+  // it is used instead of Gemini. AI_MODEL is the gateway's model or combo name.
+  AI_BASE_URL: z.string().url().optional(),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
+  AI_FALLBACK_MODEL: z.string().optional(),
+
+  // Gemini direct (used when AI_BASE_URL is not set). Without a model, the assistant answers 503.
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
   // Used for a few minutes when GEMINI_MODEL answers "high demand" / overloaded.
   GEMINI_FALLBACK_MODEL: z.string().optional(),
+
+  // Shown to users whose daily AI credits ran out (e-mail, WhatsApp link or phone number).
+  ACCOUNT_MANAGER_CONTACT: z.string().optional(),
 
   // Excel ingestion.
   UPLOAD_DIR: z.string().default('./uploads'), // Docker/PM2 mode: multipart uploads land here
