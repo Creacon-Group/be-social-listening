@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../generated/prisma/client.js';
 import type {
   IngestionContext,
   ResolvedMention,
@@ -79,6 +79,27 @@ export class PrismaMentionWriter implements MentionWriter {
       });
       if (links.length)
         await tx.mentionBrand.createMany({ data: links, skipDuplicates: true });
+
+      // Rows that already existed keep their data, but get preview fields (images, profile link)
+      // added by later exports: re-uploading a file backfills them. One statement per chunk.
+      const previews = unique.filter(
+        (i) =>
+          !idByExternal.has(i.mention.externalId) && i.mention.extra?.preview,
+      );
+      if (previews.length) {
+        const values = Prisma.join(
+          previews.map(
+            (i) =>
+              Prisma.sql`SELECT ${i.mention.externalId} AS externalId, ${JSON.stringify({ preview: i.mention.extra!.preview })} AS patch`,
+          ),
+          ' UNION ALL ',
+        );
+        await tx.$executeRaw`
+          UPDATE mentions m
+          JOIN (${values}) v ON v.externalId = m.externalId
+          SET m.extra = JSON_MERGE_PATCH(COALESCE(m.extra, JSON_OBJECT()), CAST(v.patch AS JSON))
+          WHERE m.projectId = ${ctx.projectId}`;
+      }
 
       return { inserted: count, skipped: items.length - count };
     });

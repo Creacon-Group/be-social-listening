@@ -19,6 +19,14 @@ import {
 } from './excel-parsers.js';
 import { FileStore } from './file-store.js';
 
+/** Zanroo puts several image URLs in one cell, separated by ", ". Keep a few https links. */
+const imageLinks = (v: unknown) =>
+  String(v ?? '')
+    .split(/,\s*(?=https?:\/\/)/)
+    .map((u) => u.trim())
+    .filter((u) => u.startsWith('https://'))
+    .slice(0, 4);
+
 export interface ExcelSourceInput {
   fileUrl: string; // Vercel Blob URL, or "local:<name>" in Docker/PM2 mode
 }
@@ -132,6 +140,11 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
             country: asString(raw.country),
             types: asString(raw.types),
             categories: categoriesOf(cells, h.categories),
+            preview: {
+              images: imageLinks(raw.image_link),
+              userLink: asString(raw.user_link),
+              bookmarks: n(raw.bookmarks),
+            },
           },
         },
       };

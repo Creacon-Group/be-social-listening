@@ -48,16 +48,32 @@ const mentionSelect = {
   engagements: true,
   sentimentLabel: true,
   tags: true,
+  extra: true,
   brands: {
     select: { brand: { select: { id: true, name: true, isOwn: true } } },
   },
 } satisfies Prisma.MentionSelect;
 
 type MentionRow = Prisma.MentionGetPayload<{ select: typeof mentionSelect }>;
-const toView = ({ brands, ...m }: MentionRow) => ({
-  ...m,
-  brands: brands.map((b) => b.brand),
-});
+type Extra = {
+  where?: string;
+  preview?: { images?: string[]; userLink?: string; bookmarks?: number };
+} | null;
+
+/** Card data for the Mentions page; `where` is the account whose post a comment replies to. */
+const toView = ({ brands, extra, ...m }: MentionRow) => {
+  const x = extra as Extra;
+  return {
+    ...m,
+    brands: brands.map((b) => b.brand),
+    preview: {
+      where: x?.where ?? null,
+      images: x?.preview?.images ?? [],
+      userLink: x?.preview?.userLink ?? null,
+      bookmarks: x?.preview?.bookmarks ?? 0,
+    },
+  };
+};
 
 @Injectable()
 export class MentionsService {
