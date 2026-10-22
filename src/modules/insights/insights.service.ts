@@ -43,6 +43,28 @@ Rules:
 Reply with valid JSON ONLY, no other text, in this shape:
 {"headline":"...","findings":[{"title":"...","body":"...","citations":[123,456]}]}`;
 
+/** Readable reason, including the HTTP status and body a gateway such as 9Router sends back. */
+function describeModelError(e: unknown): string {
+  const err = e as {
+    name?: string;
+    message?: string;
+    statusCode?: number;
+    responseBody?: string;
+    cause?: unknown;
+  };
+  if (err?.name === 'AI_NoOutputGeneratedError' && err.cause)
+    return describeModelError(err.cause);
+  const parts = [
+    err?.statusCode ? `HTTP ${err.statusCode}` : '',
+    err?.message ?? String(e),
+    err?.responseBody ? err.responseBody.slice(0, 300) : '',
+  ].filter(Boolean);
+  const msg = parts.join(': ');
+  return /No output generated/i.test(msg)
+    ? 'the model returned no text (gateway timeout or an upstream error). Try again in a minute.'
+    : msg.slice(0, 400);
+}
+
 const clip = (s: string | null, n: number) =>
   (s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -189,15 +211,15 @@ export class InsightsService {
       // format, which the client rejects as "Invalid JSON response".
       let text: string;
       let modelId: string;
+      let streamError: unknown;
       try {
-        let streamError: unknown;
+        streamError = undefined;
         const res = streamText({
           model,
           system: SYSTEM,
-          prompt:
-            attempt === 0
-              ? prompt
-              : `${prompt}\n\nThe previous reply was not valid JSON (${lastError}). Send JSON ONLY.`,
+          prompt: lastError
+            ? `${prompt}\n\nThe previous reply was not valid JSON (${lastError}). Send JSON ONLY.`
+            : prompt,
           temperature: 0.3,
           // Free models behind the gateway have small tokens-per-minute limits: keep the request lean.
           maxOutputTokens: 3000,
@@ -216,9 +238,12 @@ export class InsightsService {
           `Insight by ${modelId} in ${Date.now() - started} ms (${await res.finishReason})`,
         );
       } catch (e) {
-        // Provider errors (quota, rate limit, timeout) reach the user as a readable 502.
-        const reason = (e as Error).message.slice(0, 200);
+        // `res.text` only says "No output generated"; the provider's own error arrives through onError.
+        const reason = describeModelError(streamError ?? e);
         this.log.error(`Insight model call failed: ${reason}`);
+        // One more try: free models fail now and then, and a capacity error switches to the fallback.
+        if (attempt === 0) continue;
+        // Provider errors (quota, rate limit, timeout) reach the user as a readable 502.
         throw new BadGatewayException(
           `The AI model could not write insights: ${reason}`,
         );
