@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { generateText } from 'ai';
+import { streamText } from 'ai';
 import { z } from 'zod';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -185,9 +185,13 @@ export class InsightsService {
     let lastError = '';
     for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
       const started = Date.now();
-      let res: Awaited<ReturnType<typeof generateText>>;
+      // Streaming, like the AI Assistant: 9Router answers some non-streaming calls in SSE
+      // format, which the client rejects as "Invalid JSON response".
+      let text: string;
+      let modelId: string;
       try {
-        res = await generateText({
+        let streamError: unknown;
+        const res = streamText({
           model,
           system: SYSTEM,
           prompt:
@@ -199,19 +203,27 @@ export class InsightsService {
           maxOutputTokens: 3000,
           providerOptions: this.models.providerOptions,
           timeout: { totalMs: 120_000 },
+          onError: ({ error }) => {
+            streamError = error;
+            this.models.reportError(error);
+          },
         });
+        text = await res.text;
+        if (streamError) throw streamError;
+        const response = await res.response;
+        modelId = response.modelId;
+        this.log.log(
+          `Insight by ${modelId} in ${Date.now() - started} ms (${await res.finishReason})`,
+        );
       } catch (e) {
         // Provider errors (quota, rate limit, timeout) reach the user as a readable 502.
         const reason = (e as Error).message.slice(0, 200);
         this.log.error(`Insight model call failed: ${reason}`);
         throw new BadGatewayException(`AI gagal membuat insight: ${reason}`);
       }
-      this.log.log(
-        `Insight by ${res.response.modelId} in ${Date.now() - started} ms (${res.finishReason})`,
-      );
-      answeredBy = res.response.modelId || answeredBy; // the model that answered, not the combo name
+      answeredBy = modelId || answeredBy; // the model that answered, not the combo name
       try {
-        parsed = FindingsSchema.parse(parseJson(res.text));
+        parsed = FindingsSchema.parse(parseJson(text));
       } catch (e) {
         lastError = (e as Error).message.slice(0, 200);
         this.log.warn(`Insight JSON invalid: ${lastError}`);
