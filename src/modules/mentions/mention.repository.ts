@@ -40,84 +40,102 @@ export class PrismaMentionWriter implements MentionWriter {
       ...new Map(items.map((i) => [i.mention.externalId, i])).values(),
     ];
 
-    return this.prisma.$transaction(async (tx) => {
-      // skipDuplicates = INSERT IGNORE: an existing (projectId, externalId) is skipped, never overwritten.
-      const { count } = await tx.mention.createMany({
-        skipDuplicates: true,
-        data: unique.map(({ mention: m }) => ({
-          projectId: ctx.projectId,
-          batchId: ctx.batchId,
-          sourceType: ctx.sourceType,
-          externalId: m.externalId,
-          channel: m.channel,
-          postType: m.postType,
-          title: m.title,
-          content: m.content,
-          url: m.url,
-          publishedAt: m.publishedAt,
-          authorHandle: m.author.handle,
-          authorName: m.author.name,
-          authorFollowers: m.author.followers,
-          authorVerified: m.author.verified ?? false,
-          likes: m.engagement.likes,
-          shares: m.engagement.shares,
-          comments: m.engagement.comments,
-          views: m.engagement.views,
-          reach: m.engagement.reach,
-          engagements: m.engagement.total,
-          sentimentLabel: m.sentiment.label,
-          sentimentScore: m.sentiment.score,
-          location: m.location,
-          tags: m.tags as Prisma.InputJsonValue | undefined,
-          extra: m.extra as Prisma.InputJsonValue | undefined,
-        })),
-      });
+    const { count, existing } = await this.prisma.$transaction(
+      async (tx) => {
+        // skipDuplicates = INSERT IGNORE: an existing (projectId, externalId) is skipped, never overwritten.
+        const { count } = await tx.mention.createMany({
+          skipDuplicates: true,
+          data: unique.map(({ mention: m }) => ({
+            projectId: ctx.projectId,
+            batchId: ctx.batchId,
+            sourceType: ctx.sourceType,
+            externalId: m.externalId,
+            channel: m.channel,
+            postType: m.postType,
+            title: m.title,
+            content: m.content,
+            url: m.url,
+            publishedAt: m.publishedAt,
+            authorHandle: m.author.handle,
+            authorName: m.author.name,
+            authorFollowers: m.author.followers,
+            authorVerified: m.author.verified ?? false,
+            likes: m.engagement.likes,
+            shares: m.engagement.shares,
+            comments: m.engagement.comments,
+            views: m.engagement.views,
+            reach: m.engagement.reach,
+            engagements: m.engagement.total,
+            sentimentLabel: m.sentiment.label,
+            sentimentScore: m.sentiment.score,
+            location: m.location,
+            tags: m.tags as Prisma.InputJsonValue | undefined,
+            extra: m.extra as Prisma.InputJsonValue | undefined,
+          })),
+        });
 
-      // Link only rows created by THIS batch, so a skipped duplicate keeps its original brand tags.
-      const rows = await tx.mention.findMany({
-        where: {
-          projectId: ctx.projectId,
-          batchId: ctx.batchId,
-          externalId: { in: unique.map((i) => i.mention.externalId) },
-        },
-        select: { id: true, externalId: true },
-      });
-      const idByExternal = new Map(rows.map((r) => [r.externalId, r.id]));
+        // Link only rows created by THIS batch, so a skipped duplicate keeps its original brand tags.
+        const rows = await tx.mention.findMany({
+          where: {
+            projectId: ctx.projectId,
+            batchId: ctx.batchId,
+            externalId: { in: unique.map((i) => i.mention.externalId) },
+          },
+          select: { id: true, externalId: true },
+        });
+        const idByExternal = new Map(rows.map((r) => [r.externalId, r.id]));
 
-      const links = unique.flatMap(({ mention, brandIds }) => {
-        const mentionId = idByExternal.get(mention.externalId);
-        return mentionId
-          ? brandIds.map((brandId) => ({ mentionId, brandId }))
-          : [];
-      });
-      if (links.length)
-        await tx.mentionBrand.createMany({ data: links, skipDuplicates: true });
+        const links = unique.flatMap(({ mention, brandIds }) => {
+          const mentionId = idByExternal.get(mention.externalId);
+          return mentionId
+            ? brandIds.map((brandId) => ({ mentionId, brandId }))
+            : [];
+        });
+        if (links.length)
+          await tx.mentionBrand.createMany({
+            data: links,
+            skipDuplicates: true,
+          });
 
-      // Rows that already existed keep their data, but get fields added in later versions
-      // (preview, gender, region): re-uploading a file backfills them. One statement per chunk.
-      const previews = unique
-        .filter((i) => !idByExternal.has(i.mention.externalId))
-        .map((i) => ({
-          id: i.mention.externalId,
-          patch: backfillPatch(i.mention.extra),
-        }))
-        .filter((i): i is { id: string; patch: string } => i.patch !== null);
-      if (previews.length) {
-        const values = Prisma.join(
-          previews.map(
-            (i) =>
-              Prisma.sql`SELECT ${i.id} AS externalId, ${i.patch} AS patch`,
+        return {
+          count,
+          existing: unique.filter(
+            (i) => !idByExternal.has(i.mention.externalId),
           ),
-          ' UNION ALL ',
-        );
-        await tx.$executeRaw`
-          UPDATE mentions m
-          JOIN (${values}) v ON v.externalId = m.externalId
-          SET m.extra = JSON_MERGE_PATCH(COALESCE(m.extra, JSON_OBJECT()), CAST(v.patch AS JSON))
-          WHERE m.projectId = ${ctx.projectId}`;
-      }
+        };
+      },
+      { timeout: 30_000 }, // remote databases (TiDB Cloud) need more than the 5 s default
+    );
 
-      return { inserted: count, skipped: items.length - count };
-    });
+    // Outside the transaction: rows that already existed keep their data but get fields added
+    // in later versions (preview, gender, region), so re-uploading a file backfills them.
+    await this.backfill(ctx.projectId, existing);
+
+    return { inserted: count, skipped: items.length - count };
+  }
+
+  /**
+   * One UPDATE per 100 rows. `externalId IN (...)` with projectId hits the unique index directly;
+   * an earlier JOIN on a UNION ALL list made TiDB scan the table and run past the 5 s
+   * transaction timeout.
+   */
+  private async backfill(projectId: number, rows: ResolvedMention[]) {
+    const patches = rows
+      .map((i) => ({
+        id: i.mention.externalId,
+        patch: backfillPatch(i.mention.extra),
+      }))
+      .filter((i): i is { id: string; patch: string } => i.patch !== null);
+    for (let i = 0; i < patches.length; i += 100) {
+      const part = patches.slice(i, i + 100);
+      const cases = Prisma.join(
+        part.map((p) => Prisma.sql`WHEN ${p.id} THEN ${p.patch}`),
+        ' ',
+      );
+      await this.prisma.$executeRaw`
+        UPDATE mentions
+        SET extra = JSON_MERGE_PATCH(COALESCE(extra, JSON_OBJECT()), CAST(CASE externalId ${cases} END AS JSON))
+        WHERE projectId = ${projectId} AND externalId IN (${Prisma.join(part.map((p) => p.id))})`;
+    }
   }
 }
