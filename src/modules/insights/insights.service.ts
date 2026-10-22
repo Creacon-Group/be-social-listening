@@ -176,7 +176,7 @@ export class InsightsService {
       sentiment: m.sentimentLabel,
       reach: m.reach,
       engagements: m.engagements,
-      text: clip(m.title ? `${m.title}: ${m.content ?? ''}` : m.content, 220),
+      text: clip(m.title ? `${m.title}: ${m.content ?? ''}` : m.content, 160),
     }));
     const prompt = `DATA:\n${JSON.stringify(data)}\n\nMENTIONS:\n${JSON.stringify(list)}`;
 
@@ -185,18 +185,27 @@ export class InsightsService {
     let lastError = '';
     for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
       const started = Date.now();
-      const res = await generateText({
-        model,
-        system: SYSTEM,
-        prompt:
-          attempt === 0
-            ? prompt
-            : `${prompt}\n\nBalasan sebelumnya bukan JSON valid (${lastError}). Kirim ulang HANYA JSON.`,
-        temperature: 0.3,
-        maxOutputTokens: 6000,
-        providerOptions: this.models.providerOptions,
-        timeout: { totalMs: 120_000 },
-      });
+      let res: Awaited<ReturnType<typeof generateText>>;
+      try {
+        res = await generateText({
+          model,
+          system: SYSTEM,
+          prompt:
+            attempt === 0
+              ? prompt
+              : `${prompt}\n\nBalasan sebelumnya bukan JSON valid (${lastError}). Kirim ulang HANYA JSON.`,
+          temperature: 0.3,
+          // Free models behind the gateway have small tokens-per-minute limits: keep the request lean.
+          maxOutputTokens: 3000,
+          providerOptions: this.models.providerOptions,
+          timeout: { totalMs: 120_000 },
+        });
+      } catch (e) {
+        // Provider errors (quota, rate limit, timeout) reach the user as a readable 502.
+        const reason = (e as Error).message.slice(0, 200);
+        this.log.error(`Insight model call failed: ${reason}`);
+        throw new BadGatewayException(`AI gagal membuat insight: ${reason}`);
+      }
       this.log.log(
         `Insight by ${res.response.modelId} in ${Date.now() - started} ms (${res.finishReason})`,
       );
@@ -272,19 +281,19 @@ export class InsightsService {
       this.prisma.mention.findMany({
         where: base,
         orderBy: { reach: 'desc' },
-        take: 10,
+        take: 7,
         select,
       }),
       this.prisma.mention.findMany({
         where: base,
         orderBy: { engagements: 'desc' },
-        take: 10,
+        take: 7,
         select,
       }),
       this.prisma.mention.findMany({
         where: { ...base, sentimentLabel: 'NEGATIVE' },
         orderBy: [{ engagements: 'desc' }, { reach: 'desc' }],
-        take: 10,
+        take: 7,
         select,
       }),
     ]);

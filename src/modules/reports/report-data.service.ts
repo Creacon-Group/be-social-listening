@@ -87,7 +87,7 @@ export class ReportDataService {
       } catch (e) {
         // A report without the AI section is still useful; say why it is missing.
         this.log.warn(`Insight unavailable: ${(e as Error).message}`);
-        insightNote = 'Analisis AI tidak tersedia untuk laporan ini.';
+        insightNote = `Analisis AI tidak tersedia: ${(e as Error).message.slice(0, 200)}`;
       }
       if (!insight && !insightNote)
         insightNote =
