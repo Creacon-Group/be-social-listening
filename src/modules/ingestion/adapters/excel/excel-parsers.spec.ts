@@ -24,7 +24,7 @@ describe('Zanroo Excel parsers', () => {
 
   it('rejects malformed dates', () => {
     expect(() => parsePublishedAt('01/09/2026', '00:00:00', '+0700')).toThrow(
-      'tanggal tidak valid',
+      'invalid date',
     );
   });
 
@@ -48,7 +48,7 @@ describe('Zanroo Excel parsers', () => {
       'ONLINE_NEWS',
       'BLOG',
     ]);
-    expect(() => parseChannel('myspace')).toThrow('channel tidak dikenali');
+    expect(() => parseChannel('myspace')).toThrow('unknown channel');
   });
 
   it('parses sentiment labels case-insensitively', () => {

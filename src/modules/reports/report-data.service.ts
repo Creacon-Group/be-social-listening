@@ -6,18 +6,18 @@ import type { MentionFilterDto } from '../mentions/mention-filter.js';
 import { barChart, C, lineChart, sentimentChart, toPng } from './charts.js';
 
 const MONTHS = [
-  'Januari',
-  'Februari',
-  'Maret',
+  'January',
+  'February',
+  'March',
   'April',
-  'Mei',
-  'Juni',
-  'Juli',
-  'Agustus',
+  'May',
+  'June',
+  'July',
+  'August',
   'September',
-  'Oktober',
+  'October',
   'November',
-  'Desember',
+  'December',
 ];
 const CHANNEL: Record<string, string> = {
   X: 'X',
@@ -60,7 +60,7 @@ export class ReportDataService {
       where: { id: projectId },
       select: { id: true, name: true, clientName: true },
     });
-    if (!project) throw new NotFoundException('Project tidak ditemukan');
+    if (!project) throw new NotFoundException('Project not found');
     const [overview, comp, trend, influencers, hashtags, brands] =
       await Promise.all([
         this.analytics.overview(projectId, dto),
@@ -87,11 +87,11 @@ export class ReportDataService {
       } catch (e) {
         // A report without the AI section is still useful; say why it is missing.
         this.log.warn(`Insight unavailable: ${(e as Error).message}`);
-        insightNote = `Analisis AI tidak tersedia: ${(e as Error).message.slice(0, 200)}`;
+        insightNote = `AI analysis unavailable: ${(e as Error).message.slice(0, 200)}`;
       }
       if (!insight && !insightNote)
         insightNote =
-          'Belum ada analisis AI untuk periode ini. Buat dulu di halaman AI Insights.';
+          'No AI analysis for this period yet. Generate one on the Insights page first.';
     }
 
     const client = project.clientName?.trim() || project.name;
@@ -108,7 +108,7 @@ export class ReportDataService {
         ...comp,
         brands: comp.brands.map((b) => ({
           ...b,
-          color: colorOf.get(b.brandId) ?? C.violet,
+          color: colorOf.get(b.brandId) ?? C.muted,
         })),
       },
       trend: trend.days,
@@ -125,17 +125,17 @@ export class ReportDataService {
     const [mentions, reach, sov, sentiment, channels] = await Promise.all([
       toPng(
         lineChart({
-          title: 'Mentions per hari',
+          title: 'Mentions per day',
           points: d.trend.map((t) => ({ day: t.day, value: t.total })),
-          color: C.ruby,
+          color: C.ink,
         }),
         1000,
       ),
       toPng(
         lineChart({
-          title: 'Reach per hari',
+          title: 'Reach per day',
           points: d.trend.map((t) => ({ day: t.day, value: t.reach })),
-          color: C.violet,
+          color: C.muted,
         }),
         1000,
       ),
@@ -146,14 +146,14 @@ export class ReportDataService {
             label: b.name,
             value: b.sov,
             color: b.color,
-            display: `${b.sov.toLocaleString('id-ID')}%`,
+            display: `${b.sov.toLocaleString('en-GB')}%`,
           })),
         }),
         1000,
       ),
       toPng(
         sentimentChart({
-          title: 'Sentimen per brand',
+          title: 'Sentiment per brand',
           rows: d.competitors.brands.map((b) => ({
             label: b.name,
             positive: b.positive,
@@ -170,7 +170,7 @@ export class ReportDataService {
             label: channelLabel(c.channel),
             value: c.total,
             color: C.ink,
-            display: c.total.toLocaleString('id-ID'),
+            display: c.total.toLocaleString('en-GB'),
           })),
         }),
         1000,

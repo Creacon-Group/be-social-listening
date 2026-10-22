@@ -23,7 +23,7 @@ export class ChatRepository {
     const s = await this.prisma.chatSession.findFirst({
       where: { id: sessionId, userId, projectId },
     });
-    if (!s) throw new NotFoundException('Sesi chat tidak ditemukan');
+    if (!s) throw new NotFoundException('Chat not found');
     return s;
   }
 

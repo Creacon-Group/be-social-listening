@@ -64,7 +64,7 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
                 ok: false,
                 fatal: true,
                 ref: 'header',
-                message: `Kolom wajib tidak ada: ${header.missing.join(', ')}`,
+                message: `Missing required columns: ${header.missing.join(', ')}`,
               };
               return;
             }
@@ -80,7 +80,7 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
         ok: false,
         fatal: true,
         ref: 'file',
-        message: 'File tidak berisi sheet',
+        message: 'The file has no sheet',
       };
     } finally {
       stream.destroy();
@@ -96,14 +96,14 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
     cells: unknown[],
     h: ExcelHeader,
   ): SourceRecord {
-    const ref = `baris ${rowNo}`;
+    const ref = `row ${rowNo}`;
     const raw: Record<string, unknown> = {};
     h.columns.forEach((idx, key) => (raw[key] = cells[idx]));
     const n = (v: unknown) => asNumber(v) ?? 0;
 
     try {
       const externalId = asString(raw.id);
-      if (!externalId) throw new Error('MID kosong');
+      if (!externalId) throw new Error('MID is empty');
       const channel = parseChannel(raw.channel);
       const tags = asList(raw.tag);
       return {

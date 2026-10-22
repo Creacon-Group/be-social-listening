@@ -49,7 +49,7 @@ export class AuthController {
       where: { email: dto.email.toLowerCase() },
     });
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      throw new UnauthorizedException('Email atau password salah');
+      throw new UnauthorizedException('Wrong email or password');
     }
     const expiresIn = this.config.get('JWT_EXPIRES_IN_SECONDS', {
       infer: true,

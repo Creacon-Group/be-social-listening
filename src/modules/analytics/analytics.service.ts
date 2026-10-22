@@ -182,12 +182,12 @@ export class AnalyticsService {
     const clean = (v: string | null) =>
       v && !['null', 'none', 'unknown'].includes(v.toLowerCase()) ? v : null; // Zanroo writes "none" when it has no location
     const GENDER: Record<string, string> = {
-      Male: 'Laki-laki',
-      Female: 'Perempuan',
+      Male: 'Male',
+      Female: 'Female',
     };
     const genderRows = new Map<string, ReturnType<typeof metrics>>();
     for (const g of gender) {
-      const label = GENDER[clean(g.value) ?? ''] ?? 'Tidak diketahui';
+      const label = GENDER[clean(g.value) ?? ''] ?? 'Unknown';
       const prev = genderRows.get(label);
       const m = metrics(g);
       genderRows.set(

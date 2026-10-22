@@ -6,14 +6,14 @@ const esc = (s: string) =>
     /[<>&"]/g,
     (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!,
   );
-const nf = (n: number) => n.toLocaleString('id-ID');
+const nf = (n: number) => n.toLocaleString('en-GB');
 const compact = (n: number) =>
-  new Intl.NumberFormat('id-ID', {
+  new Intl.NumberFormat('en-GB', {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(n);
 const signed = (n: number) =>
-  `${n > 0 ? '+' : ''}${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })}`;
+  `${n > 0 ? '+' : ''}${n.toLocaleString('en-GB', { maximumFractionDigits: 1 })}`;
 
 /** Inline images are referenced as cid:<name>; the mail service attaches them under those ids. */
 export const CHART_CIDS = [
@@ -42,7 +42,7 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
     const ref = (n: number) => {
       const u = urlOf.get(n);
       return u
-        ? `<a href="${esc(u)}" style="color:${C.violet};text-decoration:none">[${n}]</a>`
+        ? `<a href="${esc(u)}" style="color:${C.ink};text-decoration:underline">[${n}]</a>`
         : `[${n}]`;
     };
     analysis =
@@ -55,13 +55,13 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
         )
         .join('') +
       (d.insight.sources.length
-        ? `<p style="margin:12px 0 4px;font-size:12px;font-weight:700;color:${C.muted}">Sumber</p>` +
+        ? `<p style="margin:12px 0 4px;font-size:12px;font-weight:700;color:${C.muted}">Sources</p>` +
           d.insight.sources
             .map(
               (s) =>
-                `<p style="margin:0 0 4px;font-size:12px;color:${C.muted}">[${s.ref}] ${esc(s.author ?? '-')} · ${channelLabel(s.channel)} · ${
+                `<p style="margin:0 0 4px;font-size:12px;color:${C.muted}">[${s.ref}] ${esc(s.author ?? '-')}, ${channelLabel(s.channel)}: ${
                   s.url
-                    ? `<a href="${esc(s.url)}" style="color:${C.violet}">${esc(s.text.slice(0, 90))}</a>`
+                    ? `<a href="${esc(s.url)}" style="color:${C.ink}">${esc(s.text.slice(0, 90))}</a>`
                     : esc(s.text.slice(0, 90))
                 }</p>`,
             )
@@ -74,34 +74,34 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
   const brandRows = d.competitors.brands
     .map(
       (b) =>
-        `<tr><td style="padding:6px 8px;border-bottom:1px solid ${C.line}">${esc(b.name)}${b.isOwn ? ' <span style="color:' + C.ruby + '">●</span>' : ''}</td>` +
+        `<tr><td style="padding:6px 8px;border-bottom:1px solid ${C.line}">${b.isOwn ? `<span style="background:${C.signal};padding:0 3px;font-weight:700">${esc(b.name)}</span>` : esc(b.name)}</td>` +
         `<td align="right" style="padding:6px 8px;border-bottom:1px solid ${C.line}">${nf(b.total)}</td>` +
-        `<td align="right" style="padding:6px 8px;border-bottom:1px solid ${C.line}">${b.sov.toLocaleString('id-ID')}%</td>` +
+        `<td align="right" style="padding:6px 8px;border-bottom:1px solid ${C.line}">${b.sov.toLocaleString('en-GB')}%</td>` +
         `<td align="right" style="padding:6px 8px;border-bottom:1px solid ${C.line}">${signed(b.netSentiment)}</td></tr>`,
     )
     .join('');
 
   return `<!doctype html><html><body style="margin:0;padding:0;background:${C.surface}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.surface};font-family:'Plus Jakarta Sans',Segoe UI,Helvetica,Arial,sans-serif;color:${C.ink}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.surface};font-family:Archivo,'Segoe UI',Helvetica,Arial,sans-serif;color:${C.ink}">
 <tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:16px">
-<tr><td style="padding:24px 20px;background:${C.ink};border-radius:16px 16px 0 0">
-  <div style="font-size:12px;color:#c9c6d6">Summary Report Social Listening</div>
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:10px">
+<tr><td style="padding:24px 20px;background:${C.ink};border-radius:10px 10px 0 0;border-bottom:4px solid ${C.signal}">
+  <div style="font-size:12px;color:#bdbcc4">Summary Report Social Listening</div>
   <div style="font-size:22px;font-weight:700;color:#ffffff">${esc(d.project.client)}</div>
-  <div style="font-size:13px;color:#c9c6d6">${esc(d.periodLabel)}</div>
+  <div style="font-size:13px;color:#bdbcc4">${esc(d.periodLabel)}</div>
 </td></tr>
 <tr><td style="padding:20px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="6"><tr>
     ${kpi('Mentions', nf(o.total))}${kpi('Reach', compact(o.reach))}${kpi('Engagement', compact(o.engagements))}${kpi('Net sentiment', signed(o.netSentiment))}
   </tr></table>
-  <p style="margin:8px 0 0;font-size:12px;color:${C.muted}">Positif ${pct(o.positive)}% · Netral ${pct(o.neutral)}% · Negatif ${pct(o.negative)}% · SOV brand sendiri ${d.competitors.own.sov.toLocaleString('id-ID')}%</p>
+  <p style="margin:8px 0 0;font-size:12px;color:${C.muted}">Positive ${pct(o.positive)}%, neutral ${pct(o.neutral)}%, negative ${pct(o.negative)}%. Own brands hold ${d.competitors.own.sov.toLocaleString('en-GB')}% share of voice.</p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px">
-    ${img('mentions', 'Mentions per hari')}${img('reach', 'Reach per hari')}
+    ${img('mentions', 'Mentions per day')}${img('reach', 'Reach per day')}
   </table>
-  <h2 style="margin:20px 0 10px;font-size:17px">Analisis</h2>
+  <h2 style="margin:20px 0 10px;font-size:17px">Analysis</h2>
   ${analysis}
-  <h2 style="margin:20px 0 10px;font-size:17px">Perbandingan brand</h2>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${img('sov', 'Share of voice per brand')}${img('sentiment', 'Sentimen per brand')}</table>
+  <h2 style="margin:20px 0 10px;font-size:17px">Brand comparison</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${img('sov', 'Share of voice per brand')}${img('sentiment', 'Sentiment per brand')}</table>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;margin-top:8px">
     <tr style="color:${C.muted}"><td style="padding:6px 8px">Brand</td><td align="right" style="padding:6px 8px">Volume</td><td align="right" style="padding:6px 8px">SOV</td><td align="right" style="padding:6px 8px">Net sentiment</td></tr>
     ${brandRows}
@@ -109,10 +109,10 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px">${img('channels', 'Volume per channel')}</table>
   ${
     dashboardUrl
-      ? `<p style="margin:20px 0 0"><a href="${esc(dashboardUrl)}" style="display:inline-block;background:${C.ink};color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:10px">Buka dashboard</a></p>`
+      ? `<p style="margin:20px 0 0"><a href="${esc(dashboardUrl)}" style="display:inline-block;background:${C.ink};color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:10px">Open the dashboard</a></p>`
       : ''
   }
-  <p style="margin:20px 0 0;font-size:11px;color:${C.muted}">Laporan lengkap (PDF) terlampir. Angka berasal dari data social listening yang sudah diunggah; analisis dibuat AI dan bisa keliru, periksa angka penting di dashboard.</p>
+  <p style="margin:20px 0 0;font-size:11px;color:${C.muted}">The full report is attached as a PDF. Numbers come from the uploaded social listening data. The analysis is written by AI and can be wrong, so check key numbers in the dashboard.</p>
 </td></tr></table>
 </td></tr></table></body></html>`;
 }

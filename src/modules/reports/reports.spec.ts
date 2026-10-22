@@ -2,13 +2,13 @@ import { barChart, lineChart, toPng } from './charts.js';
 import { rangeLabel } from './report-data.service.js';
 
 describe('rangeLabel', () => {
-  it('formats WIB date ranges in Indonesian', () => {
+  it('formats WIB date ranges in English', () => {
     expect(rangeLabel('2026-09-01', '2026-09-30')).toBe('1–30 September 2026');
     expect(rangeLabel('2026-08-28', '2026-09-03')).toBe(
-      '28 Agustus – 3 September 2026',
+      '28 August – 3 September 2026',
     );
     expect(rangeLabel('2025-12-28', '2026-01-03')).toBe(
-      '28 Desember 2025 – 3 Januari 2026',
+      '28 December 2025 – 3 January 2026',
     );
     expect(rangeLabel('2026-09-30', '2026-09-30')).toBe('30 September 2026');
   });

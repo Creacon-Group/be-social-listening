@@ -22,7 +22,7 @@ export class MailService {
   private transport() {
     if (!this.configured)
       throw new ServiceUnavailableException(
-        'Email belum dikonfigurasi di server (SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM).',
+        'Email is not set up on the server (SMTP_HOST, SMTP_USER, SMTP_PASS, MAIL_FROM).',
       );
     const port = this.config.get('SMTP_PORT', { infer: true });
     this.transporter ??= nodemailer.createTransport({

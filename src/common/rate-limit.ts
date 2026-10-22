@@ -52,7 +52,7 @@ export class RateLimitGuard implements CanActivate {
     }
     if (++entry.count > limit) {
       throw new HttpException(
-        'Terlalu banyak permintaan. Coba lagi sebentar.',
+        'Too many requests. Wait a minute and try again.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }

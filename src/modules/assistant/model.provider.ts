@@ -90,7 +90,7 @@ export class ModelProvider {
   get(): LanguageModelV4 {
     if (!this.primaryId || (!this.baseUrl && !this.apiKey)) {
       throw new ServiceUnavailableException(
-        'AI Assistant belum dikonfigurasi (AI_BASE_URL / AI_MODEL atau GEMINI_API_KEY / GEMINI_MODEL)',
+        'The assistant is not configured (AI_BASE_URL / AI_MODEL or GEMINI_API_KEY / GEMINI_MODEL)',
       );
     }
     const primary = this.build(this.primaryId);

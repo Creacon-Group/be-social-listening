@@ -7,17 +7,17 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm';
  * (neither runs the dashboard's JavaScript charts). Colours match the dashboard.
  */
 export const C = {
-  ink: '#1c1a2b',
-  muted: '#6b6880',
-  line: '#e7e5ee',
-  surface: '#f6f5f9',
-  ruby: '#e11d48',
-  violet: '#7c3aed',
+  ink: '#17161c',
+  muted: '#5c5b66',
+  line: '#dcdcd6',
+  surface: '#f1f1ee',
+  signal: '#ffc800', // Indosat yellow: marks own brands, as in the dashboard
+  signalSoft: '#fff1b8',
   pos: '#0f766e',
-  neu: '#cbd5e1',
+  neu: '#c9cdd3',
   neg: '#c2410c',
 };
-const FONT = 'Plus Jakarta Sans';
+const FONT = 'Archivo';
 
 const fontFile = (name: string) =>
   readFileSync(new URL(`../../../assets/fonts/${name}`, import.meta.url));
@@ -30,8 +30,8 @@ function init() {
       readFileSync(require.resolve('@resvg/resvg-wasm/index_bg.wasm')),
     );
     return [
-      fontFile('PlusJakartaSans_400Regular.ttf'),
-      fontFile('PlusJakartaSans_700Bold.ttf'),
+      fontFile('Archivo_400Regular.ttf'),
+      fontFile('Archivo_700Bold.ttf'),
     ].map((b) => new Uint8Array(b));
   })();
   return ready;
@@ -54,12 +54,12 @@ const esc = (s: string) =>
     (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!,
   );
 const compact = (n: number) =>
-  new Intl.NumberFormat('id-ID', {
+  new Intl.NumberFormat('en-GB', {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(n);
 const dayLabel = (ymd: string) =>
-  new Intl.DateTimeFormat('id-ID', {
+  new Intl.DateTimeFormat('en-GB', {
     day: 'numeric',
     month: 'short',
     timeZone: 'UTC',
@@ -165,9 +165,9 @@ export function sentimentChart(opts: {
   let s = svgOpen(W, H);
   s += `<text x="24" y="30" font-size="18" font-weight="700" fill="${C.ink}">${esc(opts.title)}</text>`;
   [
-    ['Positif', C.pos],
-    ['Netral', C.neu],
-    ['Negatif', C.neg],
+    ['Positive', C.pos],
+    ['Neutral', C.neu],
+    ['Negative', C.neg],
   ].forEach(([label, color], i) => {
     s += `<rect x="${24 + i * 110}" y="46" width="12" height="12" rx="3" fill="${color}"/>`;
     s += `<text x="${42 + i * 110}" y="57" font-size="13" fill="${C.muted}">${label}</text>`;

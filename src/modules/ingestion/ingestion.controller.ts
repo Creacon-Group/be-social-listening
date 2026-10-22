@@ -49,7 +49,7 @@ export class IngestionController {
     @CurrentUser() user: AuthUser,
   ) {
     if (dto.fileUrl.startsWith('local:'))
-      throw new BadRequestException('Gunakan endpoint upload untuk file lokal');
+      throw new BadRequestException('Use the upload endpoint for local files');
     this.files.assertTrusted(dto.fileUrl);
     return this.ingestion.start({
       type: 'EXCEL_UPLOAD',
@@ -71,13 +71,13 @@ export class IngestionController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!file) throw new BadRequestException('Field "file" wajib diisi');
+    if (!file) throw new BadRequestException('The "file" field is required');
     if (
       file.mimetype !== XLSX_MIME &&
       !file.originalname.toLowerCase().endsWith('.xlsx')
     ) {
       void this.files.discard(this.files.localRef(file.filename));
-      throw new BadRequestException('File harus berformat .xlsx');
+      throw new BadRequestException('The file must be an .xlsx workbook');
     }
     return this.ingestion.start({
       type: 'EXCEL_UPLOAD',

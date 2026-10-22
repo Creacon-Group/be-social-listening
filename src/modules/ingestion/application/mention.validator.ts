@@ -16,19 +16,19 @@ export class MentionValidator {
     if (!m.externalId || m.externalId.length > 100)
       return {
         ok: false,
-        message: 'mention id kosong atau lebih dari 100 karakter',
+        message: 'mention id is empty or longer than 100 characters',
       };
     if (Number.isNaN(m.publishedAt.getTime()))
-      return { ok: false, message: 'tanggal tidak valid' };
+      return { ok: false, message: 'invalid date' };
     if (m.publishedAt.getTime() > Date.now() + 24 * 3_600_000)
-      return { ok: false, message: 'tanggal di masa depan' };
+      return { ok: false, message: 'date is in the future' };
     if (
       m.sentiment.score !== undefined &&
       (m.sentiment.score < -1 || m.sentiment.score > 1)
     ) {
       return {
         ok: false,
-        message: 'sentiment_score di luar rentang -1 s.d. 1',
+        message: 'sentiment_score outside -1 to 1',
       };
     }
 

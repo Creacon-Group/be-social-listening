@@ -80,7 +80,7 @@ export class AssistantService {
       model,
       system: buildSystemPrompt({
         brands,
-        dataAsOf: asOf ? toWibYmd(asOf) : 'belum ada data',
+        dataAsOf: asOf ? toWibYmd(asOf) : 'no data yet',
         activeFilter: JSON.stringify(p.filter),
       }),
       messages: [
@@ -151,8 +151,8 @@ export class AssistantService {
     await result.pipeUIMessageStreamToResponse(p.res, {
       onError: (error) =>
         isCapacityError(error)
-          ? 'Model AI sedang sibuk di sisi Google. Coba kirim ulang sebentar lagi.'
-          : 'Maaf, AI Assistant sedang bermasalah. Coba lagi sebentar.',
+          ? 'The AI model is busy. Send the question again in a moment.'
+          : 'The assistant could not answer. Try again in a moment.',
     });
   }
 }

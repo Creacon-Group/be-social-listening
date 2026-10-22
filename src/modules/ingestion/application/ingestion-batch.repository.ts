@@ -50,7 +50,7 @@ export class IngestionBatchRepository {
   /** Internal read including sourceInput (never returned to clients). */
   async load(id: number) {
     const b = await this.prisma.ingestionBatch.findUnique({ where: { id } });
-    if (!b) throw new NotFoundException('Batch tidak ditemukan');
+    if (!b) throw new NotFoundException('Batch not found');
     return b;
   }
 
@@ -59,7 +59,7 @@ export class IngestionBatchRepository {
       where: { id, projectId },
       select: batchView,
     });
-    if (!b) throw new NotFoundException('Batch tidak ditemukan');
+    if (!b) throw new NotFoundException('Batch not found');
     return b;
   }
 

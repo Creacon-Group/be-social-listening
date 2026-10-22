@@ -41,18 +41,18 @@ export class FileStore {
     if (fileUrl.startsWith(LOCAL_PREFIX)) {
       const name = fileUrl.slice(LOCAL_PREFIX.length);
       if (!name || name !== path.basename(name))
-        throw new BadRequestException('fileUrl tidak valid');
+        throw new BadRequestException('Invalid fileUrl');
       return;
     }
     let url: URL;
     try {
       url = new URL(fileUrl);
     } catch {
-      throw new BadRequestException('fileUrl tidak valid');
+      throw new BadRequestException('Invalid fileUrl');
     }
     if (url.protocol !== 'https:' || !url.hostname.endsWith(this.blobSuffix)) {
       throw new BadRequestException(
-        'fileUrl harus berasal dari storage Blob proyek ini',
+        "fileUrl must point to this project's Blob storage",
       );
     }
   }
@@ -66,7 +66,7 @@ export class FileStore {
         path.join(this.uploadDir, fileUrl.slice(LOCAL_PREFIX.length)),
       ).catch(() => {
         throw new Error(
-          'File upload tidak ditemukan di server. Unggah ulang file.',
+          'The uploaded file is no longer on the server. Upload it again.',
         );
       });
       return file.createReadStream();
@@ -77,7 +77,7 @@ export class FileStore {
         : undefined,
     });
     if (!res.ok || !res.body)
-      throw new Error(`Gagal membaca file (HTTP ${res.status})`);
+      throw new Error(`Could not read the file (HTTP ${res.status})`);
     return Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
   }
 

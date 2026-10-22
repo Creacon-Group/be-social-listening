@@ -72,15 +72,15 @@ export class ReportsService {
       .filter(Boolean);
     if (!to.length)
       throw new BadRequestException(
-        'Belum ada penerima. Isi daftar email penerima di halaman Laporan.',
+        'No recipients yet. Add recipient addresses on the Export & email page.',
       );
     const bad = to.filter((r) => !EMAIL.test(r));
     if (bad.length)
-      throw new BadRequestException(`Email tidak valid: ${bad.join(', ')}`);
+      throw new BadRequestException(`Invalid email address: ${bad.join(', ')}`);
     if (!this.mail.configured)
       // Fail before spending an AI call on a report that cannot be sent.
       throw new BadRequestException(
-        'Email belum dikonfigurasi di server (SMTP_*).',
+        'Email is not set up on the server (SMTP_*).',
       );
 
     const d = await this.data.build(projectId, dto, 'generate');
@@ -99,7 +99,7 @@ export class ReportsService {
       d.insight
         ? `${d.insight.headline}\n${d.insight.findings.map((f, i) => `${i + 1}. ${f.title}: ${f.body}`).join('\n')}`
         : (d.insightNote ?? ''),
-      'Laporan lengkap terlampir (PDF).',
+      'The full report is attached as a PDF.',
     ].join('\n\n');
     const res = await this.mail.send({
       to,
@@ -168,10 +168,10 @@ export class ReportsService {
     ];
     const bad = recipients.filter((r) => !EMAIL.test(r));
     if (bad.length)
-      throw new BadRequestException(`Email tidak valid: ${bad.join(', ')}`);
+      throw new BadRequestException(`Invalid email address: ${bad.join(', ')}`);
     if (s.monthlyEnabled && !recipients.length)
       throw new BadRequestException(
-        'Isi minimal satu penerima untuk laporan bulanan.',
+        'Add at least one recipient for the monthly report.',
       );
     await this.prisma.project.update({
       where: { id: projectId },

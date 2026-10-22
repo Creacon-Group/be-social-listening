@@ -9,17 +9,17 @@ type Charts = Record<
 
 const font = (name: string) =>
   new URL(`../../../assets/fonts/${name}`, import.meta.url).pathname;
-const REGULAR = font('PlusJakartaSans_400Regular.ttf');
-const BOLD = font('PlusJakartaSans_700Bold.ttf');
+const REGULAR = font('Archivo_400Regular.ttf');
+const BOLD = font('Archivo_700Bold.ttf');
 
-const nf = (n: number) => n.toLocaleString('id-ID');
+const nf = (n: number) => n.toLocaleString('en-GB');
 const compact = (n: number) =>
-  new Intl.NumberFormat('id-ID', {
+  new Intl.NumberFormat('en-GB', {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(n);
 const signed = (n: number) =>
-  `${n > 0 ? '+' : ''}${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })}`;
+  `${n > 0 ? '+' : ''}${n.toLocaleString('en-GB', { maximumFractionDigits: 1 })}`;
 
 /** A4 summary report: KPIs, charts, AI analysis with sources, then the detail tables. */
 export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
@@ -108,17 +108,18 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
 
   // Cover band
   doc.rect(0, 0, doc.page.width, 110).fill(C.ink);
+  doc.rect(0, 110, doc.page.width, 4).fill(C.signal);
   doc
     .font('r')
     .fontSize(10)
-    .fillColor('#c9c6d6')
+    .fillColor('#bdbcc4')
     .text('Summary Report Social Listening', 40, 30);
   doc
     .font('b')
     .fontSize(22)
     .fillColor('#ffffff')
     .text(d.project.client, 40, 46, { width: W });
-  doc.font('r').fontSize(11).fillColor('#c9c6d6').text(d.periodLabel, 40, 78);
+  doc.font('r').fontSize(11).fillColor('#bdbcc4').text(d.periodLabel, 40, 78);
   doc.y = 130;
 
   // KPI tiles
@@ -132,7 +133,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   const tw = (W - 30) / 4;
   kpis.forEach(([label, value], i) => {
     const x = 40 + i * (tw + 10);
-    doc.roundedRect(x, 130, tw, 58, 8).fill(C.surface);
+    doc.roundedRect(x, 130, tw, 58, 6).fill(C.surface);
     doc
       .font('r')
       .fontSize(9)
@@ -151,7 +152,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     .fontSize(9)
     .fillColor(C.muted)
     .text(
-      `Positif ${nf(o.positive)} (${pct(o.positive)}%)  ·  Netral ${nf(o.neutral)} (${pct(o.neutral)}%)  ·  Negatif ${nf(o.negative)} (${pct(o.negative)}%)  ·  Share of voice brand sendiri ${d.competitors.own.sov.toLocaleString('id-ID')}%`,
+      `Positive ${nf(o.positive)} (${pct(o.positive)}%), neutral ${nf(o.neutral)} (${pct(o.neutral)}%), negative ${nf(o.negative)} (${pct(o.negative)}%). Own brands hold ${d.competitors.own.sov.toLocaleString('en-GB')}% share of voice.`,
       40,
       doc.y,
       { width: W },
@@ -162,7 +163,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   chart(charts.reach, 0.34);
 
   // AI analysis
-  heading('Analisis');
+  heading('Analysis');
   if (d.insight) {
     doc
       .font('b')
@@ -187,7 +188,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     });
     if (d.insight.sources.length) {
       ensure(40);
-      doc.font('b').fontSize(9).fillColor(C.muted).text('Sumber');
+      doc.font('b').fontSize(9).fillColor(C.muted).text('Sources');
       for (const s of d.insight.sources) {
         ensure(26);
         doc
@@ -195,7 +196,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
           .fontSize(8)
           .fillColor(C.muted)
           .text(
-            `[${s.ref}] ${s.author ?? '-'} · ${channelLabel(s.channel)} · "${s.text}"`,
+            `[${s.ref}] ${s.author ?? '-'}, ${channelLabel(s.channel)}: "${s.text}"`,
             { width: W, link: s.url ?? undefined, underline: false },
           );
       }
@@ -209,7 +210,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   }
 
   doc.addPage();
-  heading('Perbandingan brand');
+  heading('Brand comparison');
   chart(charts.sov, (56 + d.competitors.brands.length * 38 + 16) / 1000);
   chart(charts.sentiment, (80 + d.competitors.brands.length * 38 + 16) / 1000);
   table(
@@ -218,12 +219,12 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
       { label: 'Volume', w: W * 0.16, align: 'right' },
       { label: 'SOV', w: W * 0.14, align: 'right' },
       { label: 'Net sentiment', w: W * 0.2, align: 'right' },
-      { label: 'Negatif', w: W * 0.22, align: 'right' },
+      { label: 'Negative', w: W * 0.22, align: 'right' },
     ],
     d.competitors.brands.map((b) => [
-      `${b.name}${b.isOwn ? ' (brand sendiri)' : ''}`,
+      `${b.name}${b.isOwn ? ' (own brand)' : ''}`,
       nf(b.total),
-      `${b.sov.toLocaleString('id-ID')}%`,
+      `${b.sov.toLocaleString('en-GB')}%`,
       signed(b.netSentiment),
       nf(b.negative),
     ]),
@@ -232,10 +233,10 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   heading('Channel');
   chart(charts.channels, (56 + d.overview.channels.length * 38 + 16) / 1000);
 
-  heading('Influencer teratas (berdasarkan reach)');
+  heading('Top influencers by reach');
   table(
     [
-      { label: 'Akun', w: W * 0.34 },
+      { label: 'Account', w: W * 0.34 },
       { label: 'Channel', w: W * 0.16 },
       { label: 'Mentions', w: W * 0.14, align: 'right' },
       { label: 'Reach', w: W * 0.18, align: 'right' },
@@ -252,10 +253,10 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     ]),
   );
 
-  heading('Sumber teratas');
+  heading('Top sources');
   table(
     [
-      { label: 'Situs / platform', w: W * 0.4 },
+      { label: 'Site or platform', w: W * 0.4 },
       { label: 'Mentions', w: W * 0.2, align: 'right' },
       { label: 'Reach', w: W * 0.2, align: 'right' },
       { label: 'Net sentiment', w: W * 0.2, align: 'right' },
@@ -268,7 +269,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     ]),
   );
 
-  heading('Hashtag teratas');
+  heading('Top hashtags');
   table(
     [
       { label: 'Hashtag', w: W * 0.4 },
@@ -294,7 +295,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
       .fontSize(7.5)
       .fillColor(C.muted)
       .text(
-        `${d.title}  ·  Halaman ${i + 1} dari ${range.count}`,
+        `${d.title}    Page ${i + 1} of ${range.count}`,
         40,
         doc.page.height - 34,
         { width: W, align: 'center', lineBreak: false },

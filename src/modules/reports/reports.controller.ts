@@ -149,7 +149,7 @@ export class ReportsCronController {
   monthly(@Headers('authorization') auth?: string) {
     const secret = this.config.get('CRON_SECRET', { infer: true });
     if (!secret)
-      throw new ServiceUnavailableException('CRON_SECRET belum diisi');
+      throw new ServiceUnavailableException('CRON_SECRET is not set');
     if (auth !== `Bearer ${secret}`) throw new UnauthorizedException();
     return this.reports.runMonthly();
   }

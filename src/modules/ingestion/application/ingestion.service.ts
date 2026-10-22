@@ -63,7 +63,7 @@ export class IngestionService {
     input: Prisma.InputJsonValue;
   }) {
     if (!this.sources.has(cmd.type))
-      throw new BadRequestException(`Source ${cmd.type} belum tersedia`);
+      throw new BadRequestException(`Source ${cmd.type} is not available yet`);
     const batch = await this.batches.create({
       projectId: cmd.projectId,
       createdById: cmd.userId,
@@ -80,7 +80,7 @@ export class IngestionService {
     const batch = await this.batches.findForProject(projectId, batchId);
     if (!(await this.batches.claim(batchId))) {
       throw new ConflictException(
-        `Batch berstatus ${batch.status} dan tidak bisa dilanjutkan`,
+        `Batch is ${batch.status} and cannot be resumed`,
       );
     }
     this.background.run(this.process(batchId, true));

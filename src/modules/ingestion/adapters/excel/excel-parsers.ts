@@ -56,7 +56,7 @@ export function parseChannel(v: unknown): Channel {
         .split(' ')
         .join('_')
     ];
-  if (!ch) throw new Error(`channel tidak dikenali: ${String(v)}`);
+  if (!ch) throw new Error(`unknown channel: ${String(v)}`);
   return ch;
 }
 
@@ -84,13 +84,13 @@ export function parsePublishedAt(
     !/^\d{2}:\d{2}(:\d{2})?$/.test(t) ||
     !/^[+-]\d{4}$/.test(offset)
   ) {
-    throw new Error(`tanggal tidak valid: ${String(d)} ${t} ${offset}`);
+    throw new Error(`invalid date: ${String(d)} ${t} ${offset}`);
   }
   const parsed = new Date(
     `${d}T${t.length === 5 ? `${t}:00` : t}${offset.slice(0, 3)}:${offset.slice(3)}`,
   );
   if (Number.isNaN(parsed.getTime()))
-    throw new Error(`tanggal tidak valid: ${d} ${t} ${offset}`);
+    throw new Error(`invalid date: ${d} ${t} ${offset}`);
   return parsed;
 }
 
@@ -99,7 +99,7 @@ export function parseSentimentLabel(v: unknown): SentimentLabel {
     .trim()
     .toUpperCase();
   if (!(label in SentimentLabel))
-    throw new Error(`sentiment tidak dikenali: ${String(v)}`);
+    throw new Error(`unknown sentiment: ${String(v)}`);
   return label as SentimentLabel;
 }
 

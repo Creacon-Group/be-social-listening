@@ -80,7 +80,7 @@ export class ChatCreditsService {
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
         code: 'CREDITS_EXHAUSTED',
         message:
-          'Kredit AI Assistant hari ini sudah habis. Hubungi Account Manager Anda untuk menambah kredit.',
+          "You have used today's assistant credits. Contact your account manager to add credits.",
         resetsAt: s.resetsAt,
         contact: s.contact,
       },
@@ -149,7 +149,7 @@ export class ChatCreditsService {
   }) {
     const email = dto.email.trim().toLowerCase();
     if (await this.prisma.user.count({ where: { email } }))
-      throw new ConflictException('Email sudah terdaftar');
+      throw new ConflictException('This email already has an account');
     const projects = await this.prisma.project.findMany({
       select: { id: true },
     });
@@ -169,6 +169,6 @@ export class ChatCreditsService {
 
   private async assertUser(userId: number) {
     const n = await this.prisma.user.count({ where: { id: userId } });
-    if (!n) throw new NotFoundException('User tidak ditemukan');
+    if (!n) throw new NotFoundException('User not found');
   }
 }
