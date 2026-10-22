@@ -179,7 +179,8 @@ export class AnalyticsService {
       this.repo.demographic(f, 'province'),
       this.repo.demographic(f, 'country'),
     ]);
-    const clean = (v: string | null) => (v && v !== 'null' ? v : null);
+    const clean = (v: string | null) =>
+      v && !['null', 'none', 'unknown'].includes(v.toLowerCase()) ? v : null; // Zanroo writes "none" when it has no location
     const GENDER: Record<string, string> = {
       Male: 'Laki-laki',
       Female: 'Perempuan',
