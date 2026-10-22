@@ -15,6 +15,19 @@ export interface MentionWriter {
 }
 export const MENTION_WRITER = Symbol('MENTION_WRITER');
 
+/** `extra` keys copied onto rows that already exist when the same mention is uploaded again. */
+const BACKFILL_KEYS = ['preview', 'gender', 'hasc'] as const;
+
+const backfillPatch = (extra?: Record<string, unknown>) => {
+  const patch = Object.fromEntries(
+    BACKFILL_KEYS.filter((k) => extra?.[k] !== undefined).map((k) => [
+      k,
+      extra![k],
+    ]),
+  );
+  return Object.keys(patch).length ? JSON.stringify(patch) : null;
+};
+
 @Injectable()
 export class PrismaMentionWriter implements MentionWriter {
   constructor(private readonly prisma: PrismaService) {}
@@ -80,17 +93,20 @@ export class PrismaMentionWriter implements MentionWriter {
       if (links.length)
         await tx.mentionBrand.createMany({ data: links, skipDuplicates: true });
 
-      // Rows that already existed keep their data, but get preview fields (images, profile link)
-      // added by later exports: re-uploading a file backfills them. One statement per chunk.
-      const previews = unique.filter(
-        (i) =>
-          !idByExternal.has(i.mention.externalId) && i.mention.extra?.preview,
-      );
+      // Rows that already existed keep their data, but get fields added in later versions
+      // (preview, gender, region): re-uploading a file backfills them. One statement per chunk.
+      const previews = unique
+        .filter((i) => !idByExternal.has(i.mention.externalId))
+        .map((i) => ({
+          id: i.mention.externalId,
+          patch: backfillPatch(i.mention.extra),
+        }))
+        .filter((i): i is { id: string; patch: string } => i.patch !== null);
       if (previews.length) {
         const values = Prisma.join(
           previews.map(
             (i) =>
-              Prisma.sql`SELECT ${i.mention.externalId} AS externalId, ${JSON.stringify({ preview: i.mention.extra!.preview })} AS patch`,
+              Prisma.sql`SELECT ${i.id} AS externalId, ${i.patch} AS patch`,
           ),
           ' UNION ALL ',
         );

@@ -80,11 +80,22 @@ model Project {
   description String?  @db.VarChar(500)
   createdAt   DateTime @default(now())
 
+  /// Name in report titles: "Summary Report Social Listening {clientName} - {date range}". Falls back to name.
+  clientName           String? @db.VarChar(200)
+  /// E-mail addresses that receive summary reports.
+  reportRecipients     Json?
+  monthlyReportEnabled Boolean @default(false)
+  /// Day of month (1-28, WIB) the previous month's report is sent; leaves time to upload the month's data.
+  monthlyReportDay     Int     @default(1)
+  /// Last month sent ("YYYY-MM"), so the daily cron sends each month once.
+  lastMonthlyReport    String? @db.VarChar(7)
+
   members      ProjectMember[]
   brands       Brand[]
   mentions     Mention[]
   batches      IngestionBatch[]
   chatSessions ChatSession[]
+  insights     AiInsight[]
 
   @@map("projects")
 }
@@ -262,4 +273,24 @@ model ChatMessage {
 
   @@index([sessionId, createdAt])
   @@map("chat_messages")
+}
+
+// ───────── AI Insights ─────────
+/// A written briefing for one period. Every finding cites mention ids so it links back to posts.
+model AiInsight {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  periodFrom  DateTime @db.Date // WIB, inclusive
+  periodTo    DateTime @db.Date // WIB, inclusive
+  filter      Json // filter used (channels, sentiments, brands)
+  headline    String   @db.VarChar(500)
+  findings    Json // [{ title, body, citations: number[] }]
+  model       String?  @db.VarChar(100)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, periodFrom, periodTo])
+  @@map("ai_insights")
 }

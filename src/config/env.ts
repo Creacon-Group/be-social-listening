@@ -34,6 +34,19 @@ const envSchema = z.object({
   // Shown to users whose daily AI credits ran out (e-mail, WhatsApp link or phone number).
   ACCOUNT_MANAGER_CONTACT: z.string().optional(),
 
+  // Summary report e-mail (SMTP). Without SMTP_HOST the e-mail buttons answer with a clear error.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(), // default: true only for port 465
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  MAIL_FROM: z.string().optional(), // e.g. "Creacon Social Listening <report@creacon.id>"
+  APP_URL: z.string().url().optional(), // dashboard link in e-mails, e.g. https://social-listening.creacon.id
+  CRON_SECRET: z.string().min(16).optional(), // Vercel Cron sends it as a Bearer token
+
   // Excel ingestion.
   UPLOAD_DIR: z.string().default('./uploads'), // Docker/PM2 mode: multipart uploads land here
   BLOB_HOST_SUFFIX: z.string().default('.blob.vercel-storage.com'),

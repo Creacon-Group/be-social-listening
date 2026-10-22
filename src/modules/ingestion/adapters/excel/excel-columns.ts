@@ -23,6 +23,8 @@ export const COLUMN_ALIASES: Record<string, string[]> = {
   image_link: ['imagelink'],
   user_link: ['userlink'],
   bookmarks: ['bookmarks'],
+  gender: ['gender'],
+  hasc: ['hasc'],
   author_handle: ['username'],
   author_name: ['displayname'],
   verified: ['userverified'],

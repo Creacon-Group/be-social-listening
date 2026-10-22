@@ -17,6 +17,8 @@ import { AuthController } from './modules/auth/auth.controller.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
 import { MentionsModule } from './modules/mentions/mentions.module.js';
 import { ProjectsController } from './modules/projects/projects.controller.js';
+import { InsightsModule } from './modules/insights/insights.module.js';
+import { ReportsModule } from './modules/reports/reports.module.js';
 
 @Controller('health')
 class HealthController {
@@ -42,6 +44,8 @@ class HealthController {
     AnalyticsModule,
     IngestionModule,
     AssistantModule,
+    InsightsModule,
+    ReportsModule,
   ],
   controllers: [HealthController, AuthController, ProjectsController],
   providers: [

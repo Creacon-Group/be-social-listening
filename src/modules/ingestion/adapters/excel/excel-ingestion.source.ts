@@ -140,6 +140,8 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
             country: asString(raw.country),
             types: asString(raw.types),
             categories: categoriesOf(cells, h.categories),
+            gender: asString(raw.gender),
+            hasc: asString(raw.hasc), // e.g. ID.JI.BW: country.province.regency
             preview: {
               images: imageLinks(raw.image_link),
               userLink: asString(raw.user_link),
