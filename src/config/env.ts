@@ -47,6 +47,9 @@ const envSchema = z.object({
   APP_URL: z.string().url().optional(), // dashboard link in e-mails, e.g. https://social-listening.creacon.id
   CRON_SECRET: z.string().min(16).optional(), // Vercel Cron sends it as a Bearer token
 
+  // Zanroo Listening webhook: Zanroo sends it as `Authorization: Bearer <secret>` or `X-Webhook-Secret`.
+  ZANROO_WEBHOOK_SECRET: z.string().min(16).optional(),
+
   // Excel ingestion.
   UPLOAD_DIR: z.string().default('./uploads'), // Docker/PM2 mode: multipart uploads land here
   BLOB_HOST_SUFFIX: z.string().default('.blob.vercel-storage.com'),

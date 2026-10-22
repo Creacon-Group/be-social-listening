@@ -20,6 +20,7 @@ import {
   type IngestionContext,
   type IngestionSource,
   type ResolvedMention,
+  type SourceRecord,
 } from '../domain/normalized-mention.js';
 import { BackgroundRunner } from './background-runner.js';
 import { BrandResolver } from './brand-resolver.js';
@@ -85,6 +86,83 @@ export class IngestionService {
     }
     this.background.run(this.process(batchId, true));
     return this.batches.findForProject(projectId, batchId);
+  }
+
+  /**
+   * Push sources (webhooks): records arrive already parsed and are written in the request.
+   * New mentions are inserted, known ones get fresh engagement and sentiment, hidden ones are removed.
+   */
+  async ingestRecords(cmd: {
+    projectId: number;
+    sourceType: IngestionSourceType;
+    label: string;
+    records: SourceRecord[];
+    removeIds?: string[];
+  }) {
+    const batchId = await this.batches.dailyBatch(
+      cmd.projectId,
+      cmd.sourceType,
+      cmd.label,
+    );
+    const ctx: IngestionContext = {
+      projectId: cmd.projectId,
+      batchId,
+      sourceType: cmd.sourceType,
+    };
+    const brandIndex = await this.brands.load(cmd.projectId);
+    const ok: ResolvedMention[] = [];
+    const errors: { ref: string; message: string }[] = [];
+    const unmapped = new Map<string, number>();
+
+    for (const rec of cmd.records) {
+      if (!rec.ok) {
+        errors.push(rec);
+        await this.batches.addError(batchId, rec.ref, rec.message, rec.raw);
+        continue;
+      }
+      const check = this.validator.validate(rec.mention);
+      if (!check.ok) {
+        errors.push({ ref: rec.ref, message: check.message });
+        await this.batches.addError(batchId, rec.ref, check.message, {
+          externalId: rec.mention.externalId,
+        });
+        continue;
+      }
+      const { brandIds, unmatched } = brandIndex.resolve(
+        check.mention.brandKeywords,
+      );
+      if (!brandIds.length)
+        unmatched.forEach((k) => unmapped.set(k, (unmapped.get(k) ?? 0) + 1));
+      ok.push({ mention: check.mention, brandIds });
+    }
+
+    let inserted = 0;
+    for (let i = 0; i < ok.length; i += CHUNK) {
+      const part = ok.slice(i, i + CHUNK);
+      inserted += (await this.mentions.insertMany(ctx, part)).inserted;
+      await this.mentions.refreshMetrics(cmd.projectId, part);
+    }
+    const removed = await this.mentions.remove(
+      cmd.projectId,
+      cmd.removeIds ?? [],
+    );
+    await this.batches.addCounts(
+      batchId,
+      {
+        seen: cmd.records.length + (cmd.removeIds?.length ?? 0),
+        inserted,
+        skipped: ok.length - inserted,
+        failed: errors.length,
+      },
+      unmapped,
+    );
+    return {
+      received: cmd.records.length + (cmd.removeIds?.length ?? 0),
+      inserted,
+      updated: ok.length - inserted,
+      removed,
+      failed: errors.slice(0, 20),
+    };
   }
 
   /** Visible for tests: process synchronously. */

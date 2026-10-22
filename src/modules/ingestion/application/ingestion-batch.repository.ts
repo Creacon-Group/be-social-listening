@@ -47,6 +47,75 @@ export class IngestionBatchRepository {
     return this.prisma.ingestionBatch.create({ data, select: batchView });
   }
 
+  /**
+   * Webhook deliveries are small and frequent, so they share one batch per project per WIB day.
+   * Keeps the upload history readable and gives errors a place to live.
+   */
+  async dailyBatch(
+    projectId: number,
+    sourceType: IngestionSourceType,
+    label: string,
+  ) {
+    const day = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+    const fileName = `${label} ${day}`;
+    const found = await this.prisma.ingestionBatch.findFirst({
+      where: { projectId, sourceType, fileName },
+      select: { id: true },
+    });
+    if (found) return found.id;
+    const created = await this.prisma.ingestionBatch.create({
+      data: {
+        projectId,
+        sourceType,
+        fileName,
+        status: 'COMPLETED',
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /** Atomic counter update for batches written by many concurrent requests. */
+  async addCounts(
+    id: number,
+    c: BatchCounters & { seen: number },
+    unmapped: Map<string, number>,
+  ) {
+    if (unmapped.size) {
+      // Read-merge-write: two deliveries at the same moment may lose a count, which is fine for a hint.
+      const cur = await this.prisma.ingestionBatch.findUnique({
+        where: { id },
+        select: { unmappedKeywords: true },
+      });
+      const merged = new Map(
+        Object.entries((cur?.unmappedKeywords ?? {}) as Record<string, number>),
+      );
+      unmapped.forEach((n, k) => merged.set(k, (merged.get(k) ?? 0) + n));
+      const top = Object.fromEntries(
+        [...merged.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, UNMAPPED_KEEP),
+      );
+      await this.prisma.ingestionBatch.update({
+        where: { id },
+        data: { unmappedKeywords: top },
+      });
+    }
+    await this.prisma.ingestionBatch.update({
+      where: { id },
+      data: {
+        processedRows: { increment: c.seen },
+        insertedRows: { increment: c.inserted },
+        skippedRows: { increment: c.skipped },
+        failedRows: { increment: c.failed },
+        finishedAt: new Date(),
+        ...(c.failed ? { status: 'COMPLETED_WITH_ERRORS' } : {}),
+      },
+    });
+  }
+
   /** Internal read including sourceInput (never returned to clients). */
   async load(id: number) {
     const b = await this.prisma.ingestionBatch.findUnique({ where: { id } });

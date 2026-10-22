@@ -22,6 +22,7 @@ import {
   type IngestionSource,
 } from './domain/normalized-mention.js';
 import { IngestionController } from './ingestion.controller.js';
+import { ZanrooWebhookController } from './zanroo-webhook.controller.js';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { IngestionController } from './ingestion.controller.js';
       }),
     }),
   ],
-  controllers: [IngestionController],
+  controllers: [IngestionController, ZanrooWebhookController],
   providers: [
     IngestionService,
     IngestionBatchRepository,
@@ -57,7 +58,8 @@ import { IngestionController } from './ingestion.controller.js';
           ? new VercelBackgroundRunner()
           : new InProcessBackgroundRunner(),
     },
-    // Phase 2: add ApiIngestionSource here and to `inject` below. The core does not change.
+    // Pull sources (files, APIs read in batches). Push sources such as the Zanroo webhook call
+    // IngestionService.ingestRecords directly.
     {
       provide: INGESTION_SOURCES,
       inject: [ExcelIngestionSource],

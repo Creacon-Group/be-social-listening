@@ -21,7 +21,7 @@ export const asString = (v: unknown) => {
 export const asNumber = (v: unknown) => {
   if (v === null || v === undefined || v === '') return undefined;
   const n = Number(v);
-  if (Number.isNaN(n)) throw new Error(`bukan angka: ${String(v)}`);
+  if (Number.isNaN(n)) throw new Error(`not a number: ${String(v)}`);
   return n;
 };
 

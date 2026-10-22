@@ -2,13 +2,16 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppModule } from './app.module.js';
 import type { Env } from './config/env.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Zanroo webhook batches are large (about 25 KB per message); Vercel caps a request at 4.5 MB.
+  app.useBodyParser('json', { limit: '4.5mb' });
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 
   app.setGlobalPrefix('api', { exclude: ['health'] });

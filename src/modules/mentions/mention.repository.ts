@@ -12,6 +12,9 @@ export interface MentionWriter {
     ctx: IngestionContext,
     items: ResolvedMention[],
   ): Promise<{ inserted: number; skipped: number }>;
+  /** Overwrite engagement and sentiment of rows that already exist (sources that send updates). */
+  refreshMetrics(projectId: number, items: ResolvedMention[]): Promise<void>;
+  remove(projectId: number, externalIds: string[]): Promise<number>;
 }
 export const MENTION_WRITER = Symbol('MENTION_WRITER');
 
@@ -112,6 +115,35 @@ export class PrismaMentionWriter implements MentionWriter {
     await this.backfill(ctx.projectId, existing);
 
     return { inserted: count, skipped: items.length - count };
+  }
+
+  async refreshMetrics(projectId: number, items: ResolvedMention[]) {
+    for (let i = 0; i < items.length; i += 25) {
+      await Promise.all(
+        items.slice(i, i + 25).map(({ mention: m }) =>
+          this.prisma.mention.updateMany({
+            where: { projectId, externalId: m.externalId },
+            data: {
+              likes: m.engagement.likes,
+              shares: m.engagement.shares,
+              comments: m.engagement.comments,
+              views: m.engagement.views,
+              reach: m.engagement.reach,
+              engagements: m.engagement.total,
+              sentimentLabel: m.sentiment.label,
+            },
+          }),
+        ),
+      );
+    }
+  }
+
+  async remove(projectId: number, externalIds: string[]) {
+    if (!externalIds.length) return 0;
+    const { count } = await this.prisma.mention.deleteMany({
+      where: { projectId, externalId: { in: externalIds } },
+    });
+    return count;
   }
 
   /**
