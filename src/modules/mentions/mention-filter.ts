@@ -52,6 +52,12 @@ export class MentionFilterDto {
   @IsInt({ each: true })
   brandIds?: number[];
 
+  /** Topic categories; 0 means "no category". */
+  @IsOptional()
+  @Transform((p) => (csv(p) as string[] | undefined)?.map(Number))
+  @IsInt({ each: true })
+  categoryIds?: number[];
+
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -65,6 +71,7 @@ export interface ResolvedFilter {
   channels?: Channel[];
   sentiments?: SentimentLabel[];
   brandIds?: number[];
+  categoryIds?: number[];
   q?: string;
 }
 
@@ -112,6 +119,7 @@ export class FilterResolver {
       channels: nonEmpty(dto.channels),
       sentiments: nonEmpty(dto.sentiments),
       brandIds: nonEmpty(dto.brandIds),
+      categoryIds: nonEmpty(dto.categoryIds),
       q: dto.q?.trim() || undefined,
     };
   }

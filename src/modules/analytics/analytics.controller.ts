@@ -57,6 +57,14 @@ export class AnalyticsController {
     return this.analytics.demographics(projectId, filter);
   }
 
+  @Get('topics')
+  topics(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Query() filter: MentionFilterDto,
+  ) {
+    return this.analytics.categoryTopics(projectId, filter);
+  }
+
   @Get('hashtags')
   hashtags(
     @Param('projectId', ParseIntPipe) projectId: number,

@@ -5,6 +5,7 @@ import {
   periodOf,
   toWibYmd,
 } from '../mentions/mention-filter.js';
+import { PrismaService } from '../../database/prisma.service.js';
 import { AnalyticsRepository, type CountsRow } from './analytics.repository.js';
 import { PROVINCES } from './regions.js';
 
@@ -38,7 +39,98 @@ export class AnalyticsService {
   constructor(
     private readonly repo: AnalyticsRepository,
     private readonly filters: FilterResolver,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Topics: volume, sentiment and change against the previous period of the same length,
+   * a brand split per topic, and a daily trend. Share is of all mentions in the filter, so
+   * shares can add up to more than 100% (a mention can sit in two topics).
+   */
+  async categoryTopics(projectId: number, dto: MentionFilterDto) {
+    const f = await this.filters.resolve(projectId, dto);
+    const span = f.to.getTime() - f.from.getTime();
+    const prev = { ...f, from: new Date(f.from.getTime() - span), to: f.from };
+    const [categories, brands, rows, prevRows, coverage, byBrand, trend] =
+      await Promise.all([
+        this.prisma.category.findMany({
+          where: { projectId },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          select: { id: true, name: true, color: true },
+        }),
+        this.prisma.brand.findMany({
+          where: { projectId },
+          select: { id: true, name: true, isOwn: true, color: true },
+        }),
+        this.repo.byCategory(f),
+        this.repo.byCategory(prev),
+        this.repo.categoryCoverage(f),
+        this.repo.categoryByBrand(f),
+        this.repo.categoryTrend(f),
+      ]);
+    const total = num(coverage.total);
+    const rowOf = new Map(rows.map((r) => [r.categoryId, r]));
+    const prevOf = new Map(prevRows.map((r) => [r.categoryId, num(r.total)]));
+    const days = this.dayList(f.from, f.to);
+
+    const topics = categories
+      .map((c) => {
+        const r = rowOf.get(c.id);
+        const m = metrics(
+          r ?? { total: 0, positive: 0, neutral: 0, negative: 0 },
+        );
+        const before = prevOf.get(c.id) ?? 0;
+        const perDay = new Map(
+          trend
+            .filter((t) => t.categoryId === c.id)
+            .map((t) => [t.day, num(t.total)]),
+        );
+        return {
+          categoryId: c.id,
+          name: c.name,
+          color: c.color,
+          ...m,
+          engagements: num(r?.engagements),
+          share: pct(m.total, total),
+          previousTotal: before,
+          change: before ? round1(((m.total - before) / before) * 100) : null,
+          days: days.map((day) => ({ day, total: perDay.get(day) ?? 0 })),
+          brands: brands
+            .map((b) => {
+              const x = byBrand.find(
+                (y) => y.categoryId === c.id && y.brandId === b.id,
+              );
+              return {
+                brandId: b.id,
+                name: b.name,
+                isOwn: b.isOwn,
+                color: b.color,
+                ...metrics(
+                  x ?? { total: 0, positive: 0, neutral: 0, negative: 0 },
+                ),
+              };
+            })
+            .filter((b) => b.total > 0)
+            .sort((a, b) => b.total - a.total),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    return {
+      period: periodOf(f),
+      total,
+      uncategorized: num(coverage.uncategorized),
+      categorized: total - num(coverage.uncategorized),
+      topics,
+    };
+  }
+
+  private dayList(from: Date, to: Date) {
+    const out: string[] = [];
+    for (let t = from.getTime(); t < to.getTime(); t += DAY_MS)
+      out.push(toWibYmd(new Date(t)));
+    return out;
+  }
 
   async dataAsOf(projectId: number) {
     const d = await this.filters.dataAsOf(projectId);

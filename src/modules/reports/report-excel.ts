@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { ResolvedFilter } from '../mentions/mention-filter.js';
+import { mentionWhere } from '../mentions/mentions.service.js';
 import { channelLabel, type ReportData } from './report-data.service.js';
 
 const SENTIMENT: Record<string, string> = {
@@ -163,13 +164,7 @@ export async function renderExcel(
   );
 
   const mentions = await prisma.mention.findMany({
-    where: {
-      projectId: f.projectId,
-      publishedAt: { gte: f.from, lt: f.to },
-      ...(f.channels && { channel: { in: f.channels } }),
-      ...(f.sentiments && { sentimentLabel: { in: f.sentiments } }),
-      ...(f.brandIds && { brands: { some: { brandId: { in: f.brandIds } } } }),
-    },
+    where: mentionWhere(f),
     orderBy: { publishedAt: 'desc' },
     take: MAX_MENTION_ROWS,
     select: {

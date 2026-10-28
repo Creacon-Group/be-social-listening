@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { diskStorage } from 'multer';
 import type { Env } from '../../config/env.js';
+import { CategoriesModule } from '../categories/categories.module.js';
 import { MentionsModule } from '../mentions/mentions.module.js';
 import { ExcelIngestionSource } from './adapters/excel/excel-ingestion.source.js';
 import { FileStore } from './adapters/excel/file-store.js';
@@ -27,6 +28,7 @@ import { ZanrooWebhookController } from './zanroo-webhook.controller.js';
 @Module({
   imports: [
     MentionsModule,
+    CategoriesModule,
     MulterModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => ({

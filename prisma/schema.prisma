@@ -96,6 +96,7 @@ model Project {
   batches      IngestionBatch[]
   chatSessions ChatSession[]
   insights     AiInsight[]
+  categories   Category[]
 
   @@map("projects")
 }
@@ -164,7 +165,8 @@ model Mention {
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   batch   IngestionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  brands  MentionBrand[]
+  brands     MentionBrand[]
+  categories MentionCategory[]
 
   @@unique([projectId, externalId]) // ingestion idempotency key
   @@index([projectId, publishedAt])
@@ -293,4 +295,35 @@ model AiInsight {
 
   @@index([projectId, periodFrom, periodTo])
   @@map("ai_insights")
+}
+
+/// Topic category an admin defines per project. A mention belongs to it when it carries one of the
+/// Zanroo tags/categories in `zanrooTags`, or its text contains one of `keywords` (whole word, any case).
+model Category {
+  id         Int      @id @default(autoincrement())
+  projectId  Int
+  name       String   @db.VarChar(80)
+  color      String?  @db.VarChar(9)
+  zanrooTags Json? // string[]: exact Zanroo tag or category names
+  keywords   Json? // string[]
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mentions MentionCategory[]
+
+  @@unique([projectId, name])
+  @@map("categories")
+}
+
+model MentionCategory {
+  mentionId  Int
+  categoryId Int
+  mention    Mention  @relation(fields: [mentionId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([mentionId, categoryId])
+  @@index([categoryId])
+  @@map("mention_categories")
 }

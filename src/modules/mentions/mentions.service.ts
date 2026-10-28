@@ -11,7 +11,17 @@ import {
 export type MentionSort = 'latest' | 'engagements' | 'reach';
 
 export function mentionWhere(f: ResolvedFilter): Prisma.MentionWhereInput {
+  const ids = f.categoryIds?.filter((id) => id > 0) ?? [];
+  const categoryWhere: Prisma.MentionWhereInput[] = f.categoryIds
+    ? [
+        ...(ids.length
+          ? [{ categories: { some: { categoryId: { in: ids } } } }]
+          : []),
+        ...(f.categoryIds.includes(0) ? [{ categories: { none: {} } }] : []),
+      ]
+    : [];
   return {
+    ...(categoryWhere.length && { OR: categoryWhere }),
     projectId: f.projectId,
     publishedAt: { gte: f.from, lt: f.to },
     ...(f.channels && { channel: { in: f.channels } }),
@@ -52,6 +62,9 @@ const mentionSelect = {
   brands: {
     select: { brand: { select: { id: true, name: true, isOwn: true } } },
   },
+  categories: {
+    select: { category: { select: { id: true, name: true, color: true } } },
+  },
 } satisfies Prisma.MentionSelect;
 
 type MentionRow = Prisma.MentionGetPayload<{ select: typeof mentionSelect }>;
@@ -61,11 +74,12 @@ type Extra = {
 } | null;
 
 /** Card data for the Mentions page; `where` is the account whose post a comment replies to. */
-const toView = ({ brands, extra, ...m }: MentionRow) => {
+const toView = ({ brands, categories, extra, ...m }: MentionRow) => {
   const x = extra as Extra;
   return {
     ...m,
     brands: brands.map((b) => b.brand),
+    categories: categories.map((c) => c.category),
     preview: {
       where: x?.where ?? null,
       images: x?.preview?.images ?? [],

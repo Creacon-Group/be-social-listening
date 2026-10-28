@@ -45,6 +45,19 @@ export class AnalyticsRepository {
       p.push(Prisma.sql`m.sentimentLabel IN (${Prisma.join(f.sentiments)})`);
     if (f.q)
       p.push(Prisma.sql`m.content LIKE ${`%${escapeLike(f.q)}%`} ESCAPE '!'`);
+    if (f.categoryIds) {
+      const ids = f.categoryIds.filter((id) => id > 0);
+      const any: Prisma.Sql[] = [];
+      if (ids.length)
+        any.push(
+          Prisma.sql`EXISTS (SELECT 1 FROM mention_categories mcf WHERE mcf.mentionId = m.id AND mcf.categoryId IN (${Prisma.join(ids)}))`,
+        );
+      if (f.categoryIds.includes(0))
+        any.push(
+          Prisma.sql`NOT EXISTS (SELECT 1 FROM mention_categories mcf WHERE mcf.mentionId = m.id)`,
+        );
+      if (any.length) p.push(Prisma.sql`(${Prisma.join(any, ' OR ')})`);
+    }
     return Prisma.join(p, ' AND ');
   }
 
@@ -268,5 +281,64 @@ export class AnalyticsRepository {
       FROM mentions m
       WHERE ${this.where(f)} ${this.brandExists(f)} AND m.tags IS NOT NULL
       LIMIT ${limit}`;
+  }
+
+  /** Volume and sentiment per topic category. A mention in two categories counts for both. */
+  byCategory(f: ResolvedFilter) {
+    return this.prisma.$queryRaw<
+      (CountsRow & { categoryId: number; engagements: unknown })[]
+    >`
+      SELECT mc.categoryId AS categoryId, COUNT(*) AS total,
+             CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
+             CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
+             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative,
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements
+      FROM mention_categories mc
+      JOIN mentions m ON m.id = mc.mentionId
+      WHERE ${this.where(f)} ${this.brandExists(f)}
+      GROUP BY mc.categoryId`;
+  }
+
+  /** Mentions in the filter that match no category, and the filter total. */
+  async categoryCoverage(f: ResolvedFilter) {
+    const [r] = await this.prisma.$queryRaw<
+      { total: unknown; uncategorized: unknown }[]
+    >`
+      SELECT COUNT(*) AS total,
+             CAST(SUM(NOT EXISTS (SELECT 1 FROM mention_categories mc WHERE mc.mentionId = m.id)) AS SIGNED) AS uncategorized
+      FROM mentions m
+      WHERE ${this.where(f)} ${this.brandExists(f)}`;
+    return r;
+  }
+
+  /** Topic x brand: how each brand is talked about within each topic. */
+  categoryByBrand(f: ResolvedFilter) {
+    return this.prisma.$queryRaw<
+      (CountsRow & { categoryId: number; brandId: number })[]
+    >`
+      SELECT mc.categoryId AS categoryId, mb.brandId AS brandId, COUNT(*) AS total,
+             CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
+             CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
+             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative
+      FROM mention_categories mc
+      JOIN mentions m ON m.id = mc.mentionId
+      JOIN mention_brands mb ON mb.mentionId = m.id
+      WHERE ${this.where(f)} ${this.brandCond(f)}
+      GROUP BY mc.categoryId, mb.brandId`;
+  }
+
+  /** Daily volume per topic, in WIB days. */
+  categoryTrend(f: ResolvedFilter) {
+    return this.prisma.$queryRaw<
+      { categoryId: number; day: string; total: unknown }[]
+    >`
+      SELECT mc.categoryId AS categoryId,
+             DATE_FORMAT(DATE_ADD(m.publishedAt, INTERVAL ${Prisma.raw(String(WIB_OFFSET_H))} HOUR), '%Y-%m-%d') AS day,
+             COUNT(*) AS total
+      FROM mention_categories mc
+      JOIN mentions m ON m.id = mc.mentionId
+      WHERE ${this.where(f)} ${this.brandExists(f)}
+      GROUP BY mc.categoryId, day
+      ORDER BY day`;
   }
 }

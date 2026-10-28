@@ -22,6 +22,7 @@ import {
   type ResolvedMention,
   type SourceRecord,
 } from '../domain/normalized-mention.js';
+import { CategoriesService } from '../../categories/categories.service.js';
 import { BackgroundRunner } from './background-runner.js';
 import { BrandResolver } from './brand-resolver.js';
 import { IngestionBatchRepository } from './ingestion-batch.repository.js';
@@ -47,6 +48,7 @@ export class IngestionService {
     private readonly validator: MentionValidator,
     private readonly brands: BrandResolver,
     private readonly background: BackgroundRunner,
+    private readonly categories: CategoriesService,
     config: ConfigService<Env, true>,
   ) {
     this.sources = new Map(sources.map((s) => [s.type, s]));
@@ -141,6 +143,10 @@ export class IngestionService {
       const part = ok.slice(i, i + CHUNK);
       inserted += (await this.mentions.insertMany(ctx, part)).inserted;
       await this.mentions.refreshMetrics(cmd.projectId, part);
+      await this.categories.applyToMentions(
+        cmd.projectId,
+        part.map((p) => p.mention.externalId),
+      );
     }
     const removed = await this.mentions.remove(
       cmd.projectId,
@@ -196,6 +202,10 @@ export class IngestionService {
         const res = await this.mentions.insertMany(ctx, chunk);
         counters.inserted += res.inserted;
         counters.skipped += res.skipped;
+        await this.categories.applyToMentions(
+          ctx.projectId,
+          chunk.map((c) => c.mention.externalId),
+        );
         chunk = [];
       }
       await this.batches.checkpoint(batchId, counters, seen, unmapped);

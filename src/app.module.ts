@@ -12,6 +12,7 @@ import { RateLimitGuard } from './common/rate-limit.js';
 import { type Env, validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
+import { CategoriesModule } from './modules/categories/categories.module.js';
 import { AssistantModule } from './modules/assistant/assistant.module.js';
 import { AuthController } from './modules/auth/auth.controller.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
@@ -41,6 +42,7 @@ class HealthController {
     }),
     DatabaseModule,
     MentionsModule,
+    CategoriesModule,
     AnalyticsModule,
     IngestionModule,
     AssistantModule,
