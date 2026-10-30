@@ -28,8 +28,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Response } from 'express';
-import { Public, Roles } from '../../common/auth.js';
+import {
+  type AuthUser,
+  CurrentUser,
+  Public,
+  Roles,
+} from '../../common/auth.js';
 import { RateLimit } from '../../common/rate-limit.js';
+import { bearer, sameSecret } from '../../common/secret.js';
 import type { Env } from '../../config/env.js';
 import { MentionFilterDto } from '../mentions/mention-filter.js';
 import { ReportsService } from './reports.service.js';
@@ -91,9 +97,14 @@ export class ReportsController {
   async pdf(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
+    @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    download(res, await this.reports.pdf(projectId, filter), 'application/pdf');
+    download(
+      res,
+      await this.reports.pdf(projectId, filter, user.role !== 'VIEWER'),
+      'application/pdf',
+    );
   }
 
   @Get('excel')
@@ -150,7 +161,8 @@ export class ReportsCronController {
     const secret = this.config.get('CRON_SECRET', { infer: true });
     if (!secret)
       throw new ServiceUnavailableException('CRON_SECRET is not set');
-    if (auth !== `Bearer ${secret}`) throw new UnauthorizedException();
+    const given = bearer(auth);
+    if (!given || !sameSecret(given, secret)) throw new UnauthorizedException();
     return this.reports.runMonthly();
   }
 }

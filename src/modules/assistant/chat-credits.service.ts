@@ -33,7 +33,8 @@ export interface CreditStatus {
 
 /**
  * Daily AI Assistant credits: one credit per answered question, reset at 00:00 WIB.
- * Only answers that finish are charged; a failed or stopped answer costs nothing.
+ * The credit is taken up front; it is given back only when the model produced no text, so
+ * stopping a stream after reading the answer does not make it free.
  */
 @Injectable()
 export class ChatCreditsService {
@@ -71,10 +72,42 @@ export class ChatCreditsService {
     };
   }
 
-  /** Throws 429 CREDITS_EXHAUSTED before anything is sent to the model. */
-  async assertAvailable(userId: number, role: UserRole) {
+  /**
+   * Takes one credit before anything is sent to the model, in a single conditional UPDATE so
+   * parallel requests cannot all pass a "1 credit left" check. Throws 429 CREDITS_EXHAUSTED.
+   * Returns true when a credit was taken (give it back with release() if no answer is produced).
+   */
+  async reserve(userId: number, role: UserRole): Promise<boolean> {
+    if (role === 'SUPERADMIN') return false;
+    const day = wibToday();
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { dailyChatCredits: true },
+    });
+    await this.prisma.chatUsage.upsert({
+      where: { userId_day: { userId, day } },
+      create: { userId, day },
+      update: {},
+    });
+    const taken = await this.prisma.$executeRaw`
+      UPDATE chat_usage SET used = used + 1
+      WHERE userId = ${userId} AND day = ${day}
+        AND used < ${user.dailyChatCredits} + bonus`;
+    if (taken > 0) return true;
+    return this.exhausted(userId, role);
+  }
+
+  /** Gives back a credit taken by reserve() when the model produced no answer. */
+  async release(userId: number) {
+    const day = wibToday();
+    await this.prisma.chatUsage.updateMany({
+      where: { userId, day, used: { gt: 0 } },
+      data: { used: { decrement: 1 } },
+    });
+  }
+
+  private async exhausted(userId: number, role: UserRole): Promise<never> {
     const s = await this.status(userId, role);
-    if (s.unlimited || (s.remaining ?? 0) > 0) return;
     throw new HttpException(
       {
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -86,16 +119,6 @@ export class ChatCreditsService {
       },
       HttpStatus.TOO_MANY_REQUESTS,
     );
-  }
-
-  /** Charge one credit for an answered question. */
-  async consume(userId: number) {
-    const day = wibToday();
-    await this.prisma.chatUsage.upsert({
-      where: { userId_day: { userId, day } },
-      create: { userId, day, used: 1 },
-      update: { used: { increment: 1 } },
-    });
   }
 
   /** Superadmin: list users with today's usage. */

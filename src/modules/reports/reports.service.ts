@@ -52,8 +52,13 @@ export class ReportsService {
     return `Summary-Report-${slug(d.project.client)}-${d.period.from}_${d.period.to}.${ext}`;
   }
 
-  async pdf(projectId: number, dto: MentionFilterDto) {
-    const d = await this.data.build(projectId, dto, 'generate');
+  /** canGenerate: false for viewers, who may read an existing briefing but not start an AI call. */
+  async pdf(projectId: number, dto: MentionFilterDto, canGenerate: boolean) {
+    const d = await this.data.build(
+      projectId,
+      dto,
+      canGenerate ? 'generate' : 'existing',
+    );
     const buffer = await renderPdf(d, await this.data.charts(d));
     return { buffer, fileName: this.fileName(d, 'pdf') };
   }

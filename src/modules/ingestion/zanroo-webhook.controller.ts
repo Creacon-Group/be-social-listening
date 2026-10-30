@@ -13,9 +13,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { Public } from '../../common/auth.js';
 import { RateLimit } from '../../common/rate-limit.js';
+import { bearer, sameSecret } from '../../common/secret.js';
 import type { Env } from '../../config/env.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import {
@@ -25,13 +25,6 @@ import {
 import { IngestionService } from './application/ingestion.service.js';
 
 const MAX_MESSAGES = 1000;
-
-// Hash both sides first so the comparison takes the same time whatever the input length.
-const sameSecret = (a: string, b: string) =>
-  timingSafeEqual(
-    createHash('sha256').update(a).digest(),
-    createHash('sha256').update(b).digest(),
-  );
 
 /**
  * Zanroo Listening pushes new and updated messages here in real time.
@@ -59,7 +52,7 @@ export class ZanrooWebhookController {
     const secret = this.config.get('ZANROO_WEBHOOK_SECRET', { infer: true });
     if (!secret)
       throw new ServiceUnavailableException('ZANROO_WEBHOOK_SECRET is not set');
-    const given = headerSecret ?? authorization?.replace(/^Bearer\s+/i, '');
+    const given = headerSecret ?? bearer(authorization);
     if (!given || !sameSecret(given, secret)) throw new UnauthorizedException();
 
     const project = await this.prisma.project.count({

@@ -212,7 +212,11 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
           .fillColor(C.muted)
           .text(
             `[${s.ref}] ${s.author ?? '-'}, ${channelLabel(s.channel)}: "${s.text}"`,
-            { width: W, link: s.url ?? undefined, underline: false },
+            {
+              width: W,
+              link: s.url && /^https?:\/\//i.test(s.url) ? s.url : undefined, // no javascript:/data: links
+              underline: false,
+            },
           );
       }
     }

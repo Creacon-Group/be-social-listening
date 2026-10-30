@@ -6,6 +6,9 @@ const esc = (s: string) =>
     /[<>&"]/g,
     (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!,
   );
+/** Only http(s) links from mention data; anything else (javascript:, data:) renders as plain text. */
+const webUrl = (u: string | null | undefined) =>
+  u && /^https?:\/\//i.test(u.trim()) ? u.trim() : null;
 const nf = (n: number) => n.toLocaleString('en-GB');
 const compact = (n: number) =>
   new Intl.NumberFormat('en-GB', {
@@ -41,7 +44,7 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
 
   let analysis: string;
   if (d.insight) {
-    const urlOf = new Map(d.insight.sources.map((s) => [s.ref, s.url]));
+    const urlOf = new Map(d.insight.sources.map((s) => [s.ref, webUrl(s.url)]));
     const ref = (n: number) => {
       const u = urlOf.get(n);
       return u
@@ -63,8 +66,8 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
             .map(
               (s) =>
                 `<p style="margin:0 0 4px;font-size:12px;color:${C.muted}">[${s.ref}] ${esc(s.author ?? '-')}, ${channelLabel(s.channel)}: ${
-                  s.url
-                    ? `<a href="${esc(s.url)}" style="color:${C.accent};text-decoration:none">${esc(s.text.slice(0, 90))}</a>`
+                  webUrl(s.url)
+                    ? `<a href="${esc(webUrl(s.url)!)}" style="color:${C.accent};text-decoration:none">${esc(s.text.slice(0, 90))}</a>`
                     : esc(s.text.slice(0, 90))
                 }</p>`,
             )

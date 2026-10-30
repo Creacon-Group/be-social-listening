@@ -13,6 +13,9 @@ async function bootstrap() {
   // Zanroo webhook batches are large (about 25 KB per message); Vercel caps a request at 4.5 MB.
   app.useBodyParser('json', { limit: '4.5mb' });
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  // req.ip follows X-Forwarded-For only when it comes from a local reverse proxy (Nginx, Docker
+  // network), so clients cannot fake their IP to dodge the rate limit.
+  app.set('trust proxy', 'loopback, uniquelocal');
 
   app.setGlobalPrefix('api', { exclude: ['health'] });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));

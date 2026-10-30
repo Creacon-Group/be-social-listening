@@ -21,6 +21,22 @@ const DEFAULT = { limit: 300, ttlMs: 60_000 };
 export const RateLimit = (limit: number, ttlMs = 60_000) =>
   SetMetadata(RATE_LIMIT, { limit, ttlMs });
 
+/**
+ * Client IP. Vercel overwrites X-Forwarded-For with the real client address, so it is trusted there.
+ * Elsewhere a client can send any X-Forwarded-For and reset its own limit, so req.ip is used; it
+ * honours the header only from proxies Express trusts (`trust proxy` in main.ts).
+ */
+const clientIp = (req: Request) => {
+  if (process.env.VERCEL) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
+      ?.split(',')[0]
+      .trim();
+    if (first) return first;
+  }
+  return req.ip ?? 'unknown';
+};
+
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
@@ -34,12 +50,7 @@ export class RateLimitGuard implements CanActivate {
         ctx.getClass(),
       ]) ?? DEFAULT;
     const req = ctx.switchToHttp().getRequest<Request>();
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip =
-      (Array.isArray(forwarded) ? forwarded[0] : forwarded)
-        ?.split(',')[0]
-        .trim() ?? req.ip;
-    const key = `${ctx.getClass().name}.${ctx.getHandler().name}:${ip}`;
+    const key = `${ctx.getClass().name}.${ctx.getHandler().name}:${clientIp(req)}`;
 
     const now = Date.now();
     if (this.hits.size > 10_000) {

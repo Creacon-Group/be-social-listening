@@ -52,12 +52,45 @@ export class AssistantService {
     signal: AbortSignal;
   }) {
     const model = this.models.get(); // 503 before anything is streamed when the AI is not configured
-    await this.credits.assertAvailable(p.userId, p.role); // 429 when today's credits are used up
     const session = await this.chats.findOwned(
       p.sessionId,
       p.userId,
       p.projectId,
     );
+    // 429 when today's credits are used up. The credit is taken now, not after the answer, so
+    // parallel requests or a client that hangs up before the end cannot get answers for free.
+    const reserved = await this.credits.reserve(p.userId, p.role);
+    let answered = false;
+    let settled = !reserved;
+    const settle = async () => {
+      if (settled) return;
+      settled = true;
+      if (!answered)
+        await this.credits
+          .release(p.userId)
+          .catch((e: Error) =>
+            this.log.error('Could not give back a credit', e.message),
+          );
+    };
+    try {
+      await this.answer(p, model, session.id, session.title, {
+        onText: () => (answered = true),
+        settle,
+      });
+    } catch (e) {
+      await settle();
+      throw e;
+    }
+  }
+
+  private async answer(
+    p: Parameters<AssistantService['chat']>[0],
+    model: ReturnType<ModelProvider['get']>,
+    sessionId: string,
+    title: string | null,
+    credit: { onText: () => void; settle: () => Promise<void> },
+  ) {
+    const session = { id: sessionId, title };
     const [history, brands, asOf] = await Promise.all([
       this.chats.recent(session.id, HISTORY_LIMIT),
       this.prisma.brand.findMany({
@@ -119,6 +152,11 @@ export class AssistantService {
         ),
       onToolExecutionEnd: (e) =>
         this.log.log(`Tool ${e.toolCall.toolName} ${e.toolExecutionMs} ms`),
+      // Any text that reached the user counts as an answer and keeps its credit.
+      onChunk: ({ chunk }) => {
+        if (chunk.type === 'text-delta' && chunk.text.trim()) credit.onText();
+      },
+      onAbort: () => credit.settle(),
       onError: ({ error }) => {
         this.log.error(
           'LLM stream error',
@@ -132,9 +170,8 @@ export class AssistantService {
             `Answer cut off at the output token limit (${MAX_OUTPUT_TOKENS})`,
           );
         }
-        // Charge only a real answer; an empty or failed one costs no credit.
-        if (e.text.trim() && e.finishReason !== 'error')
-          await this.credits.consume(p.userId);
+        if (e.text.trim()) credit.onText();
+        await credit.settle(); // gives the credit back when there is no answer
         await this.chats.add(session.id, {
           role: 'ASSISTANT',
           content: e.text,
@@ -147,6 +184,11 @@ export class AssistantService {
         });
       },
     });
+
+    // Also covers a stream that fails outright (onEnd/onAbort may not run then).
+    void Promise.resolve(result.text)
+      .catch(() => undefined)
+      .finally(() => credit.settle());
 
     await result.pipeUIMessageStreamToResponse(p.res, {
       onError: (error) =>
