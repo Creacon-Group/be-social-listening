@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
@@ -12,6 +13,10 @@ import { renderExcel } from './report-excel.js';
 import { renderPdf } from './report-pdf.js';
 import { ReportDataService } from './report-data.service.js';
 import { MailService } from './mail.service.js';
+
+const LOGO_PNG = readFileSync(
+  new URL('../../../assets/brand/creacon-mark.png', import.meta.url),
+);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -113,6 +118,12 @@ export class ReportsService {
           cid,
           contentType: 'image/png',
         })),
+        {
+          filename: 'creacon.png',
+          content: LOGO_PNG,
+          cid: 'logo',
+          contentType: 'image/png',
+        },
         {
           filename: this.fileName(d, 'pdf'),
           content: pdf,

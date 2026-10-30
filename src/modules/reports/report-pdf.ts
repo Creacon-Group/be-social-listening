@@ -9,8 +9,11 @@ type Charts = Record<
 
 const font = (name: string) =>
   new URL(`../../../assets/fonts/${name}`, import.meta.url).pathname;
-const REGULAR = font('Archivo_400Regular.ttf');
-const BOLD = font('Archivo_700Bold.ttf');
+const REGULAR = font('Inter_Regular.ttf');
+const SEMIBOLD = font('Inter_SemiBold.ttf');
+const BOLD = font('Inter_Bold.ttf');
+const LOGO = new URL('../../../assets/brand/creacon-mark.png', import.meta.url)
+  .pathname;
 
 const nf = (n: number) => n.toLocaleString('en-GB');
 const compact = (n: number) =>
@@ -30,7 +33,10 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     bufferPages: true,
     info: { Title: d.title, Author: 'Social Listening Dashboard' },
   });
-  doc.registerFont('r', REGULAR).registerFont('b', BOLD);
+  doc
+    .registerFont('r', REGULAR)
+    .registerFont('s', SEMIBOLD)
+    .registerFont('b', BOLD);
   const W = doc.page.width - 80;
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
@@ -43,13 +49,13 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   };
   const heading = (t: string) => {
     ensure(40);
-    doc.moveDown(0.6);
+    doc.moveDown(0.8);
     doc
-      .font('b')
-      .fontSize(14)
+      .font('s')
+      .fontSize(13)
       .fillColor(C.ink)
-      .text(t, 40, doc.y, { width: W });
-    doc.moveDown(0.3);
+      .text(t, 40, doc.y, { width: W, characterSpacing: -0.15 });
+    doc.moveDown(0.35);
   };
   const chart = (img: Buffer, ratio: number) => {
     const h = W * ratio;
@@ -65,7 +71,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     const drawHeader = () => {
       let x = 40;
       const y = doc.y; // every header cell on one line (text() moves doc.y)
-      doc.font('b').fontSize(8.5).fillColor(C.muted);
+      doc.font('s').fontSize(8).fillColor(C.muted);
       for (const c of cols) {
         doc.text(c.label, x + 4, y, {
           width: c.w - 8,
@@ -106,21 +112,29 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     }
   };
 
-  // Cover band
-  doc.rect(0, 0, doc.page.width, 110).fill(C.ink);
-  doc.rect(0, 110, doc.page.width, 4).fill(C.signal);
+  // Header: Creacon mark and product line, then the client and period. White page, no band.
+  doc.image(LOGO, 40, 34, { width: 18 });
+  doc
+    .font('s')
+    .fontSize(9)
+    .fillColor(C.ink)
+    .text('Social Listening', 64, 36, { lineBreak: false });
   doc
     .font('r')
-    .fontSize(10)
-    .fillColor('#bdbcc4')
-    .text('Summary Report Social Listening', 40, 30);
+    .fontSize(9)
+    .fillColor(C.muted)
+    .text('by Creacon', 64, 47, { lineBreak: false });
   doc
-    .font('b')
-    .fontSize(22)
-    .fillColor('#ffffff')
-    .text(d.project.client, 40, 46, { width: W });
-  doc.font('r').fontSize(11).fillColor('#bdbcc4').text(d.periodLabel, 40, 78);
-  doc.y = 130;
+    .font('r')
+    .fontSize(9)
+    .fillColor(C.muted)
+    .text('Summary report', 40, 40, { width: W, align: 'right' });
+  doc
+    .font('s')
+    .fontSize(24)
+    .fillColor(C.ink)
+    .text(d.project.client, 40, 78, { width: W, characterSpacing: -0.5 });
+  doc.font('r').fontSize(11).fillColor(C.muted).text(d.periodLabel, 40, 110);
 
   // KPI tiles
   const o = d.overview;
@@ -130,22 +144,23 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     ['Engagement', compact(o.engagements)],
     ['Net sentiment', signed(o.netSentiment)],
   ];
-  const tw = (W - 30) / 4;
+  const tw = (W - 24) / 4;
+  const ky = 140;
   kpis.forEach(([label, value], i) => {
-    const x = 40 + i * (tw + 10);
-    doc.roundedRect(x, 130, tw, 58, 6).fill(C.surface);
+    const x = 40 + i * (tw + 8);
+    doc.roundedRect(x, ky, tw, 60, 8).fill(C.surface);
     doc
       .font('r')
-      .fontSize(9)
+      .fontSize(8.5)
       .fillColor(C.muted)
-      .text(label, x + 12, 140);
+      .text(label, x + 12, ky + 11);
     doc
-      .font('b')
-      .fontSize(18)
+      .font('s')
+      .fontSize(19)
       .fillColor(C.ink)
-      .text(value, x + 12, 156, { width: tw - 24 });
+      .text(value, x + 12, ky + 27, { width: tw - 24, characterSpacing: -0.4 });
   });
-  doc.y = 200;
+  doc.y = ky + 72;
   const pct = (n: number) => (o.total ? Math.round((n / o.total) * 100) : 0);
   doc
     .font('r')
@@ -166,16 +181,16 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   heading('Analysis');
   if (d.insight) {
     doc
-      .font('b')
-      .fontSize(11)
+      .font('s')
+      .fontSize(11.5)
       .fillColor(C.ink)
-      .text(d.insight.headline, { width: W });
+      .text(d.insight.headline, { width: W, lineGap: 1.5 });
     doc.moveDown(0.5);
     d.insight.findings.forEach((f, i) => {
       ensure(60);
       const refs = f.refs.length ? ` [${f.refs.join('][')}]` : '';
       doc
-        .font('b')
+        .font('s')
         .fontSize(10)
         .fillColor(C.ink)
         .text(`${i + 1}. ${f.title}`, { width: W });
@@ -188,7 +203,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     });
     if (d.insight.sources.length) {
       ensure(40);
-      doc.font('b').fontSize(9).fillColor(C.muted).text('Sources');
+      doc.font('s').fontSize(9).fillColor(C.muted).text('Sources');
       for (const s of d.insight.sources) {
         ensure(26);
         doc
@@ -294,12 +309,20 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
       .font('r')
       .fontSize(7.5)
       .fillColor(C.muted)
-      .text(
-        `${d.title}    Page ${i + 1} of ${range.count}`,
-        40,
-        doc.page.height - 34,
-        { width: W, align: 'center', lineBreak: false },
-      );
+      .text('Social Listening by Creacon', 40, doc.page.height - 34, {
+        width: W / 2,
+        lineBreak: false,
+      });
+    doc.text(
+      `Page ${i + 1} of ${range.count}`,
+      40 + W / 2,
+      doc.page.height - 34,
+      {
+        width: W / 2,
+        align: 'right',
+        lineBreak: false,
+      },
+    );
   }
   doc.end();
   return done;

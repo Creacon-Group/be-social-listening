@@ -7,17 +7,17 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm';
  * (neither runs the dashboard's JavaScript charts). Colours match the dashboard.
  */
 export const C = {
-  ink: '#17161c',
-  muted: '#5c5b66',
-  line: '#dcdcd6',
-  surface: '#f1f1ee',
-  signal: '#ffc800', // Indosat yellow: marks own brands, as in the dashboard
-  signalSoft: '#fff1b8',
+  ink: '#1d1d1f',
+  muted: '#6e6e73',
+  line: '#e5e5e3',
+  surface: '#f2f2f0',
+  accent: '#3d55c4', // Creacon indigo: own brands, links
+  accentSoft: '#e9ecfb',
   pos: '#0f766e',
   neu: '#c9cdd3',
   neg: '#c2410c',
 };
-const FONT = 'Archivo';
+const FONT = 'Inter';
 
 const fontFile = (name: string) =>
   readFileSync(new URL(`../../../assets/fonts/${name}`, import.meta.url));
@@ -30,8 +30,9 @@ function init() {
       readFileSync(require.resolve('@resvg/resvg-wasm/index_bg.wasm')),
     );
     return [
-      fontFile('Archivo_400Regular.ttf'),
-      fontFile('Archivo_700Bold.ttf'),
+      fontFile('Inter_Regular.ttf'),
+      fontFile('Inter_SemiBold.ttf'),
+      fontFile('Inter_Bold.ttf'),
     ].map((b) => new Uint8Array(b));
   })();
   return ready;
@@ -95,7 +96,7 @@ export function lineChart(opts: {
   const y = (v: number) => pad.t + ih - (v / max) * ih;
 
   let s = svgOpen(W, H);
-  s += `<text x="${pad.l}" y="30" font-size="18" font-weight="700" fill="${C.ink}">${esc(opts.title)}</text>`;
+  s += `<text x="${pad.l}" y="30" font-size="17" font-weight="600" letter-spacing="-0.3" fill="${C.ink}">${esc(opts.title)}</text>`;
   for (let i = 0; i <= 4; i++) {
     const v = (max / 4) * i;
     s += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="${C.line}"/>`;
@@ -113,10 +114,10 @@ export function lineChart(opts: {
       )
       .join(' ');
     s += `<path d="${d} L${x(pts.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="${opts.color}" fill-opacity="0.08"/>`;
-    s += `<path d="${d}" fill="none" stroke="${opts.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    s += `<path d="${d}" fill="none" stroke="${opts.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     const peak = pts.reduce((a, p, i) => (p.value > pts[a].value ? i : a), 0);
     s += `<circle cx="${x(peak)}" cy="${y(pts[peak].value)}" r="4.5" fill="${opts.color}"/>`;
-    s += `<text x="${x(peak)}" y="${y(pts[peak].value) - 10}" font-size="12" font-weight="700" text-anchor="middle" fill="${C.ink}">${compact(pts[peak].value)}</text>`;
+    s += `<text x="${x(peak)}" y="${y(pts[peak].value) - 10}" font-size="12" font-weight="600" text-anchor="middle" fill="${C.ink}">${compact(pts[peak].value)}</text>`;
   }
   return s + '</svg>';
 }
@@ -134,14 +135,14 @@ export function barChart(opts: {
   const max = Math.max(1, ...opts.rows.map((r) => r.value));
   const iw = W - pad.l - pad.r;
   let s = svgOpen(W, H);
-  s += `<text x="24" y="30" font-size="18" font-weight="700" fill="${C.ink}">${esc(opts.title)}</text>`;
+  s += `<text x="24" y="30" font-size="17" font-weight="600" letter-spacing="-0.3" fill="${C.ink}">${esc(opts.title)}</text>`;
   opts.rows.forEach((r, i) => {
     const yy = pad.t + i * rowH;
     const w = Math.max(2, (r.value / max) * iw);
     s += `<text x="${pad.l - 12}" y="${yy + 21}" font-size="14" text-anchor="end" fill="${C.ink}">${esc(r.label)}</text>`;
     s += `<rect x="${pad.l}" y="${yy + 6}" width="${iw}" height="22" rx="6" fill="${C.surface}"/>`;
     s += `<rect x="${pad.l}" y="${yy + 6}" width="${w}" height="22" rx="6" fill="${r.color}"/>`;
-    s += `<text x="${pad.l + w + 8}" y="${yy + 22}" font-size="13" font-weight="700" fill="${C.ink}">${esc(r.display)}</text>`;
+    s += `<text x="${pad.l + w + 8}" y="${yy + 22}" font-size="13" font-weight="600" fill="${C.ink}">${esc(r.display)}</text>`;
   });
   return s + '</svg>';
 }
@@ -163,7 +164,7 @@ export function sentimentChart(opts: {
   const H = pad.t + opts.rows.length * rowH + pad.b;
   const iw = W - pad.l - pad.r;
   let s = svgOpen(W, H);
-  s += `<text x="24" y="30" font-size="18" font-weight="700" fill="${C.ink}">${esc(opts.title)}</text>`;
+  s += `<text x="24" y="30" font-size="17" font-weight="600" letter-spacing="-0.3" fill="${C.ink}">${esc(opts.title)}</text>`;
   [
     ['Positive', C.pos],
     ['Neutral', C.neu],
