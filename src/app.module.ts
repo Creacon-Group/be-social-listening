@@ -20,6 +20,7 @@ import { MentionsModule } from './modules/mentions/mentions.module.js';
 import { ProjectsController } from './modules/projects/projects.controller.js';
 import { InsightsModule } from './modules/insights/insights.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
+import { GeoModule } from './modules/geo/geo.module.js';
 
 @Controller('health')
 class HealthController {
@@ -48,6 +49,7 @@ class HealthController {
     AssistantModule,
     InsightsModule,
     ReportsModule,
+    GeoModule,
   ],
   controllers: [HealthController, AuthController, ProjectsController],
   providers: [

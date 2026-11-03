@@ -102,6 +102,12 @@ model Project {
   nssIncludeNeutral Boolean @default(true)
   showNss           Boolean @default(true)
 
+  // GEO Intelligence: one benchmark per project, run at most once per calendar month (WIB).
+  geoEnabled       Boolean @default(false)
+  geoRunDay        Int     @default(1) // day of month the scheduled run starts (1..28)
+  geoRunsPerPrompt Int     @default(1) // independent runs per prompt x model x mode (1..3)
+  geoProfile       Json? // { industry, market, language, description, targetName }
+
   members      ProjectMember[]
   brands       Brand[]
   mentions     Mention[]
@@ -110,6 +116,8 @@ model Project {
   insights     AiInsight[]
   categories   Category[]
   accounts     AccountProfile[]
+  geoPrompts   GeoPrompt[]
+  geoBatches   GeoBatch[]
 
   @@map("projects")
 }
@@ -132,6 +140,7 @@ model Brand {
   isOwn     Boolean  @default(false) // true = our brand, false = competitor
   color     String?  @db.VarChar(9)
   aliases   Json? // keywords (exact, case-insensitive) from the Zanroo Keyword column
+  domains   Json? // GEO: websites the brand owns, e.g. ["im3.id", "tri.co.id"]
   createdAt DateTime @default(now())
 
   project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -176,8 +185,8 @@ model Mention {
   tags     Json? // Zanroo Tag column (issues/topics)
   extra    Json? // Where, Country, Types, category labels set to 1
 
-  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  batch   IngestionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  batch      IngestionBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
   brands     MentionBrand[]
   categories MentionCategory[]
 
@@ -357,4 +366,195 @@ model AccountProfile {
 
   @@unique([projectId, channel, handle])
   @@map("account_profiles")
+}
+
+// ───────── GEO Intelligence ─────────
+
+enum GeoPromptCategory {
+  CATEGORY_DISCOVERY
+  BRAND_RECOMMENDATION
+  PROBLEM_SOLUTION
+  BRAND_COMPARISON
+  BRAND_AWARENESS
+  BRAND_REPUTATION
+}
+
+enum GeoPromptStatus {
+  DRAFT // suggested or edited, not in the benchmark yet
+  APPROVED // in the benchmark
+  ARCHIVED
+}
+
+/// KNOWLEDGE = plain chat completion; SEARCH = web_search_options (only for models that return citations).
+enum GeoMode {
+  KNOWLEDGE
+  SEARCH
+}
+
+enum GeoBatchStatus {
+  RUNNING
+  PAUSED // time budget hit; resumed by the page or the cron
+  COMPLETED
+  PARTIAL // some runs failed
+  FAILED
+}
+
+enum GeoRunStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum GeoRecommendation {
+  RECOMMENDED
+  POSITIVE // discussed positively, not recommended
+  NEUTRAL
+  NEGATIVE // discouraged
+  NOT_MENTIONED
+  UNCLEAR
+}
+
+model GeoPrompt {
+  id        Int               @id @default(autoincrement())
+  projectId Int
+  category  GeoPromptCategory
+  branded   Boolean           @default(false) // the prompt names the target brand
+  language  String            @default("id") @db.VarChar(10)
+  status    GeoPromptStatus   @default(DRAFT)
+  source    String            @default("manual") @db.VarChar(20) // manual | suggested
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  project  Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions GeoPromptVersion[]
+
+  @@index([projectId, status])
+  @@map("geo_prompts")
+}
+
+/// Immutable: editing a prompt adds a version; runs keep the version they used.
+model GeoPromptVersion {
+  id          Int      @id @default(autoincrement())
+  promptId    Int
+  version     Int
+  text        String   @db.Text
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  prompt GeoPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  runs   GeoRun[]
+
+  @@unique([promptId, version])
+  @@map("geo_prompt_versions")
+}
+
+/// One benchmark execution. At most one per project per month: (projectId, period) is unique.
+model GeoBatch {
+  id          Int            @id @default(autoincrement())
+  projectId   Int
+  period      String         @db.VarChar(7) // YYYY-MM, WIB
+  status      GeoBatchStatus @default(RUNNING)
+  trigger     String         @db.VarChar(20) // scheduled | manual
+  config      Json // models, modes, runsPerPrompt, evaluator, evaluation version, prompt version ids
+  total       Int            @default(0)
+  succeeded   Int            @default(0)
+  failed      Int            @default(0)
+  createdById Int?
+  startedAt   DateTime       @default(now())
+  finishedAt  DateTime?
+  updatedAt   DateTime       @updatedAt
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runs    GeoRun[]
+
+  @@unique([projectId, period])
+  @@map("geo_batches")
+}
+
+/// Prompt version x model x mode x run number. The raw provider response is never modified.
+model GeoRun {
+  id               Int          @id @default(autoincrement())
+  batchId          Int
+  projectId        Int
+  promptVersionId  Int
+  model            String       @db.VarChar(100)
+  mode             GeoMode
+  runNo            Int
+  status           GeoRunStatus @default(PENDING)
+  attempts         Int          @default(0)
+  latencyMs        Int?
+  promptTokens     Int?
+  completionTokens Int?
+  reasoningTokens  Int?
+  requestId        String?      @db.VarChar(120)
+  errorType        String?      @db.VarChar(60)
+  errorMessage     String?      @db.VarChar(500)
+  rawResponse      Json?
+  text             String?      @db.MediumText
+  executedAt       DateTime?
+
+  batch         GeoBatch         @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  promptVersion GeoPromptVersion @relation(fields: [promptVersionId], references: [id])
+  citations     GeoCitation[]
+  evaluations   GeoEvaluation[]
+
+  @@unique([batchId, promptVersionId, model, mode, runNo])
+  @@index([projectId, status])
+  @@map("geo_runs")
+}
+
+/// Citations exactly as returned by the provider (Gemini grounding: domain in title, Google redirect URL).
+model GeoCitation {
+  id         Int     @id @default(autoincrement())
+  runId      Int
+  domain     String  @db.VarChar(255)
+  url        String  @db.VarChar(1000)
+  startIndex Int?
+  endIndex   Int?
+  ownedBy    String? @db.VarChar(20) // TARGET | COMPETITOR | null
+
+  run GeoRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("geo_citations")
+}
+
+/// Versioned evaluation of one run. Re-evaluating adds a row; old ones stay.
+model GeoEvaluation {
+  id             Int      @id @default(autoincrement())
+  runId          Int
+  version        String   @db.VarChar(20)
+  evaluatorModel String?  @db.VarChar(100)
+  status         String   @db.VarChar(20) // ok | failed
+  error          String?  @db.VarChar(500)
+  raw            Json? // evaluator output
+  createdAt      DateTime @default(now())
+
+  run     GeoRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  results GeoBrandResult[]
+
+  @@index([runId, createdAt])
+  @@map("geo_evaluations")
+}
+
+/// One tracked entity in one evaluated response: the target group (brandId null) or a competitor.
+model GeoBrandResult {
+  id             Int               @id @default(autoincrement())
+  evaluationId   Int
+  isTarget       Boolean
+  brandId        Int?
+  name           String            @db.VarChar(120)
+  mentioned      Boolean
+  matches        Json? // matched alias strings
+  recommendation GeoRecommendation
+  position       Int? // rank in a numbered list, null when the answer has no list
+  listSize       Int?
+  sentiment      String?           @db.VarChar(10) // positive | neutral | negative | mixed | unknown
+  evidence       String?           @db.VarChar(600)
+  manual         Boolean           @default(false) // corrected by an analyst
+
+  evaluation GeoEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@index([evaluationId])
+  @@map("geo_brand_results")
 }

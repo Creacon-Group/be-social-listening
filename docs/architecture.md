@@ -55,3 +55,15 @@ Date presets (`today`, `7d`, `30d`, `90d`, `365d`) count back from the latest me
 `POST /projects/:id/assistant/sessions/:sessionId/chat` streams an AI SDK UI message stream (SSE). The model can call three tools that wrap `AnalyticsService` and `MentionsService`: `get_overview`, `compare_brands`, `top_mentions`. The project id is fixed by the server; the dashboard filter is the default and the model may override range/channels/sentiments. History is read from the database (last 20 text messages). Every answer stores `toolCalls`, `filtersSnapshot`, model and token counts.
 
 `top_mentions` sends up to 10 mention texts (280 characters each) to Google. Check the data-use terms of your Gemini key tier before using client data.
+
+## GEO Intelligence (AI visibility)
+
+Module `src/modules/geo`. Measures how AI models answer consumer questions about the category, through SumoPod (OpenAI-compatible, `POST {SUMOPOD_BASE_URL}/chat/completions`).
+
+- **Models**: Gemini and GPT, one API key each (`SUMOPOD_GEMINI_*`, `SUMOPOD_GPT_*`); a model without a key is not run. Capabilities verified on 2026-11-03: Gemini supports `web_search_options` and returns `message.annotations[].url_citation` (title = domain, url = Google redirect); GPT returns no annotations, so it runs in knowledge mode only. `max_tokens` defaults to 4000 because GPT spends most output tokens on reasoning.
+- **Modes**: `KNOWLEDGE` (plain chat) and `SEARCH` (Gemini with web search). Results are never combined across modes.
+- **Benchmark**: one per project = all `APPROVED` prompts. Editing a prompt adds an immutable version; runs keep the version they used.
+- **Once a month**: `geo_batches` is unique on `(projectId, period)` (WIB `YYYY-MM`). Vercel Cron calls `/api/cron/geo` daily; it starts the month's batch on/after `projects.geoRunDay` when `geoEnabled`, and resumes paused batches. Admins can start the month's batch by hand if it has not run; a second batch in the same month answers 409. Failed runs can be retried inside the batch.
+- **Execution**: runs (prompt version × model × mode × run number) are processed 3 at a time with a time budget, then paused and resumed (same pattern as Excel ingestion). Transient errors (timeout, network, 429, 5xx, empty answer) are retried twice; invalid model / auth errors fail the run at once. The raw provider response is stored and never modified. API keys are never logged or returned.
+- **Evaluation** (`v1`, versioned, re-runnable without new generations): mentions by whole-word alias match (target = all own brands as one group, competitors = other brands); position only from a numbered list in the answer; recommendation and sentiment from the evaluator model (`GEO_EVALUATOR`), kept only when its evidence quote appears in the answer, otherwise `UNCLEAR`. Answers that name no tracked brand skip the evaluator call. Analysts can correct a result.
+- **KPIs** (valid answers only): mention rate, recommendation rate, average and normalised position (first = 100, last = 0, single-item list = N/A), AI share of voice (each brand once per answer), any / owned-domain citation rate (null = unavailable, not 0%).
