@@ -31,6 +31,18 @@ const envSchema = z.object({
   // Used for a few minutes when GEMINI_MODEL answers "high demand" / overloaded.
   GEMINI_FALLBACK_MODEL: z.string().optional(),
 
+  // GEO Intelligence through SumoPod (OpenAI-compatible). Each model has its own API key; a model
+  // without a key is not offered. Keys stay on the server and are never logged or returned.
+  SUMOPOD_BASE_URL: z.string().url().default('https://ai.sumopod.com/v1'),
+  SUMOPOD_GEMINI_API_KEY: z.string().optional(),
+  SUMOPOD_GEMINI_MODEL: z.string().default('gemini/gemini-3.8-flash'),
+  SUMOPOD_GPT_API_KEY: z.string().optional(),
+  SUMOPOD_GPT_MODEL: z.string().default('gpt-6-luna'),
+  GEO_EVALUATOR: z.enum(['gemini', 'gpt']).default('gemini'), // model that classifies answers
+  GEO_MAX_TOKENS: z.coerce.number().int().positive().default(4000), // reasoning models need room
+  GEO_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  GEO_TIME_BUDGET_MS: z.coerce.number().int().positive().optional(), // Vercel: pause and resume
+
   // Shown to users whose daily AI credits ran out (e-mail, WhatsApp link or phone number).
   ACCOUNT_MANAGER_CONTACT: z.string().optional(),
 

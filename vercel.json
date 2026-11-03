@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/monthly-reports",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/geo",
+      "schedule": "0 2 * * *"
     }
   ]
 }
