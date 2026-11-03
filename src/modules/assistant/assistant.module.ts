@@ -17,6 +17,6 @@ import { ModelProvider } from './model.provider.js';
     ChatCreditsService,
     ModelProvider,
   ],
-  exports: [ModelProvider],
+  exports: [ModelProvider, ChatCreditsService],
 })
 export class AssistantModule {}

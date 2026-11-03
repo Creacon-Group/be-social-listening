@@ -77,7 +77,7 @@ export class ChatCreditsService {
    * parallel requests cannot all pass a "1 credit left" check. Throws 429 CREDITS_EXHAUSTED.
    * Returns true when a credit was taken (give it back with release() if no answer is produced).
    */
-  async reserve(userId: number, role: UserRole): Promise<boolean> {
+  async reserve(userId: number, role: UserRole, amount = 1): Promise<boolean> {
     if (role === 'SUPERADMIN') return false;
     const day = wibToday();
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -90,19 +90,18 @@ export class ChatCreditsService {
       update: {},
     });
     const taken = await this.prisma.$executeRaw`
-      UPDATE chat_usage SET used = used + 1
+      UPDATE chat_usage SET used = used + ${amount}
       WHERE userId = ${userId} AND day = ${day}
-        AND used < ${user.dailyChatCredits} + bonus`;
+        AND used + ${amount} <= ${user.dailyChatCredits} + bonus`;
     if (taken > 0) return true;
     return this.exhausted(userId, role);
   }
 
-  /** Gives back a credit taken by reserve() when the model produced no answer. */
-  async release(userId: number) {
-    const day = wibToday();
+  /** Gives back credits taken by reserve() when no answer was produced (on the day they were taken). */
+  async release(userId: number, amount = 1, day: Date = wibToday()) {
     await this.prisma.chatUsage.updateMany({
-      where: { userId, day, used: { gt: 0 } },
-      data: { used: { decrement: 1 } },
+      where: { userId, day, used: { gte: amount } },
+      data: { used: { decrement: amount } },
     });
   }
 
@@ -113,7 +112,7 @@ export class ChatCreditsService {
         statusCode: HttpStatus.TOO_MANY_REQUESTS,
         code: 'CREDITS_EXHAUSTED',
         message:
-          "You have used today's assistant credits. Contact your account manager to add credits.",
+          'Not enough AI credits left today. Contact your account manager to add credits.',
         resetsAt: s.resetsAt,
         contact: s.contact,
       },

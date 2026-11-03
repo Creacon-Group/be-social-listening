@@ -448,11 +448,14 @@ model GeoPromptVersion {
   @@map("geo_prompt_versions")
 }
 
-/// One benchmark execution. At most one per project per month: (projectId, period) is unique.
+/// One benchmark execution. Monthly: at most one per project per month ((projectId, period) is unique).
+/// Ad-hoc (manual, paid with AI credits): period is null, so any number per month.
 model GeoBatch {
   id          Int            @id @default(autoincrement())
   projectId   Int
-  period      String         @db.VarChar(7) // YYYY-MM, WIB
+  period      String?        @db.VarChar(7) // YYYY-MM, WIB; null for manual (ad-hoc) runs
+  kind        String         @default("monthly") @db.VarChar(10) // monthly | adhoc
+  label       String?        @db.VarChar(120)
   status      GeoBatchStatus @default(RUNNING)
   trigger     String         @db.VarChar(20) // scheduled | manual
   config      Json // models, modes, runsPerPrompt, evaluator, evaluation version, prompt version ids

@@ -56,10 +56,15 @@ export class GeoAnalyticsService {
       ? await this.prisma.geoBatch.findFirst({
           where: { id: batchId, projectId },
         })
-      : await this.prisma.geoBatch.findFirst({
-          where: { projectId },
+      : // default: the latest monthly run; manual runs are opened explicitly
+        ((await this.prisma.geoBatch.findFirst({
+          where: { projectId, kind: 'monthly' },
           orderBy: { period: 'desc' },
-        });
+        })) ??
+        (await this.prisma.geoBatch.findFirst({
+          where: { projectId },
+          orderBy: { startedAt: 'desc' },
+        })));
     if (batchId && !b) throw new NotFoundException('Batch not found');
     return b;
   }
@@ -86,10 +91,14 @@ export class GeoAnalyticsService {
       };
     });
 
-    const prev = await this.prisma.geoBatch.findFirst({
-      where: { projectId, period: { lt: batch.period } },
-      orderBy: { period: 'desc' },
-    });
+    // Month-on-month comparison only between monthly runs.
+    const prev =
+      batch.kind === 'monthly' && batch.period
+        ? await this.prisma.geoBatch.findFirst({
+            where: { projectId, kind: 'monthly', period: { lt: batch.period } },
+            orderBy: { period: 'desc' },
+          })
+        : null;
     let previous = null;
     if (prev) {
       const pc = prev.config as unknown as BatchConfig;
@@ -126,6 +135,8 @@ export class GeoAnalyticsService {
       batch: {
         id: batch.id,
         period: batch.period,
+        kind: batch.kind,
+        label: batch.label,
         status: batch.status,
         total: batch.total,
         evaluator: config.evaluator,

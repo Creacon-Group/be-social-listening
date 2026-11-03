@@ -94,6 +94,27 @@ class UpdatePromptDto {
   @IsOptional() @IsEnum(GeoPromptStatus) status?: GeoPromptStatus;
 }
 
+class NewPromptDto {
+  @IsString() @MinLength(5) @MaxLength(1000) text!: string;
+  @IsEnum(GeoPromptCategory) category!: GeoPromptCategory;
+  @IsOptional() @IsBoolean() branded?: boolean;
+  @IsOptional() @IsIn(['id', 'en']) language?: string;
+}
+
+class AdhocRunDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsInt({ each: true })
+  promptIds?: number[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => NewPromptDto)
+  newPrompts?: NewPromptDto[];
+}
+
 class CorrectDto {
   @IsOptional() @IsBoolean() mentioned?: boolean;
   @IsOptional()
@@ -190,6 +211,19 @@ export class GeoController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.geo.start(projectId, 'manual', user.id);
+  }
+
+  /** Manual run outside the monthly schedule; costs one AI credit per prompt (429 when not enough). */
+  @Post('adhoc-runs')
+  @Roles('ADMIN', 'ANALYST')
+  @RateLimit(5)
+  @HttpCode(HttpStatus.ACCEPTED)
+  adhoc(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: AdhocRunDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.geo.startAdhoc(projectId, user, dto);
   }
 
   @Get('batches/:batchId')

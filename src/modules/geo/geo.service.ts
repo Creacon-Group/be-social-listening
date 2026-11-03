@@ -13,6 +13,8 @@ import {
   GeoPromptStatus,
   Prisma,
 } from '../../generated/prisma/client.js';
+import type { UserRole } from '../../generated/prisma/enums.js';
+import { ChatCreditsService } from '../assistant/chat-credits.service.js';
 import { BackgroundRunner } from '../ingestion/application/background-runner.js';
 import {
   buildResults,
@@ -30,6 +32,8 @@ import {
 } from './sumopod.client.js';
 
 export const MAX_PROMPTS = 50;
+/** Prompts in one manual run; each costs one AI credit. */
+export const MAX_ADHOC_PROMPTS = 10;
 const CONCURRENCY = 3;
 const STALE_AFTER_MS = 10 * 60_000;
 const WIB_MS = 7 * 3_600_000;
@@ -57,6 +61,8 @@ export interface BatchConfig {
     citations: boolean;
   }[];
   runsPerPrompt: number;
+  /** Manual runs: who paid how many credits, on which WIB day, and how many were given back. */
+  charge?: { userId: number; credits: number; day: string; refunded?: number };
   evaluator: string;
   evaluationVersion: string;
   maxTokens: number;
@@ -137,6 +143,7 @@ export class GeoService {
     private readonly prisma: PrismaService,
     private readonly ai: SumoPodClient,
     private readonly background: BackgroundRunner,
+    private readonly credits: ChatCreditsService,
     config: ConfigService<Env, true>,
   ) {
     this.timeBudgetMs =
@@ -531,6 +538,157 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
     return this.batch(projectId, batchId);
   }
 
+  /**
+   * Manual run outside the monthly schedule, paid with the user's daily AI credits: one credit per
+   * prompt (each prompt runs on every configured model and mode, once). New prompts are saved as
+   * drafts so they can join the benchmark later. Results stay separate from the monthly runs.
+   */
+  async startAdhoc(
+    projectId: number,
+    user: { id: number; role: UserRole },
+    dto: {
+      promptIds?: number[];
+      newPrompts?: {
+        text: string;
+        category: GeoPromptCategory;
+        branded?: boolean;
+        language?: string;
+      }[];
+    },
+  ) {
+    const combos = this.combos();
+    if (!combos.length)
+      throw new BadRequestException(
+        'No AI model is configured (SumoPod API keys)',
+      );
+    const ids = [...new Set(dto.promptIds ?? [])];
+    const count = ids.length + (dto.newPrompts?.length ?? 0);
+    if (!count)
+      throw new BadRequestException('Pick or write at least one prompt');
+    if (count > MAX_ADHOC_PROMPTS)
+      throw new BadRequestException(
+        `A manual run takes at most ${MAX_ADHOC_PROMPTS} prompts`,
+      );
+    const existing = ids.length
+      ? await this.prisma.geoPrompt.findMany({
+          where: { id: { in: ids }, projectId, status: { not: 'ARCHIVED' } },
+          select: { id: true },
+        })
+      : [];
+    if (existing.length !== ids.length)
+      throw new BadRequestException(
+        'Some prompts were not found or are archived',
+      );
+
+    // Pay first, in one conditional update: fails with 429 when the credits do not cover it.
+    const day = new Date(Date.now() + WIB_MS).toISOString().slice(0, 10);
+    const charged = await this.credits.reserve(user.id, user.role, count);
+    try {
+      const newIds: number[] = [];
+      for (const p of dto.newPrompts ?? [])
+        newIds.push(
+          await this.createPrompt(projectId, user.id, {
+            ...p,
+            source: 'adhoc',
+            status: 'DRAFT',
+          }),
+        );
+      const versions = await this.prisma.geoPromptVersion.findMany({
+        where: { promptId: { in: [...ids, ...newIds] } },
+        orderBy: { version: 'desc' },
+        select: { id: true, promptId: true },
+      });
+      // newest version first, so the first id kept per prompt is its current version
+      const current = new Map<number, number>();
+      for (const v of versions)
+        if (!current.has(v.promptId)) current.set(v.promptId, v.id);
+      const versionIds = [...current.values()];
+      const config: BatchConfig = {
+        combos,
+        runsPerPrompt: 1,
+        evaluator: this.ai.idOf(this.evaluatorKey),
+        evaluationVersion: EVALUATION_VERSION,
+        maxTokens: this.ai.maxTokens,
+        promptVersionIds: versionIds,
+        ...(charged && { charge: { userId: user.id, credits: count, day } }),
+      };
+      const stamp = new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta',
+      }).format(new Date());
+      const batch = await this.prisma.geoBatch.create({
+        data: {
+          projectId,
+          period: null,
+          kind: 'adhoc',
+          label: `Manual run, ${stamp} WIB (${count} prompt${count > 1 ? 's' : ''})`,
+          trigger: 'manual',
+          createdById: user.id,
+          config: config as unknown as Prisma.InputJsonValue,
+          total: versionIds.length * combos.length,
+        },
+      });
+      await this.prisma.geoRun.createMany({
+        skipDuplicates: true,
+        data: versionIds.flatMap((promptVersionId) =>
+          combos.map((c) => ({
+            batchId: batch.id,
+            projectId,
+            promptVersionId,
+            model: c.model,
+            mode: c.mode,
+            runNo: 1,
+          })),
+        ),
+      });
+      this.background.run(this.process(batch.id));
+      return {
+        ...(await this.batch(projectId, batch.id)),
+        creditsCharged: charged ? count : 0,
+      };
+    } catch (e) {
+      if (charged) await this.credits.release(user.id, count);
+      throw e;
+    }
+  }
+
+  /** Manual runs: give back one credit for each prompt that produced no answer at all. Runs once. */
+  private async refundFailedPrompts(batchId: number) {
+    const b = await this.prisma.geoBatch.findUniqueOrThrow({
+      where: { id: batchId },
+    });
+    const config = b.config as unknown as BatchConfig;
+    if (
+      b.kind !== 'adhoc' ||
+      !config.charge ||
+      config.charge.refunded !== undefined
+    )
+      return;
+    const ok = await this.prisma.geoRun.groupBy({
+      by: ['promptVersionId'],
+      where: { batchId, status: 'SUCCEEDED' },
+    });
+    const refund = Math.max(0, config.promptVersionIds.length - ok.length);
+    await this.prisma.geoBatch.update({
+      where: { id: batchId },
+      data: {
+        config: {
+          ...config,
+          charge: { ...config.charge, refunded: refund },
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+    if (refund)
+      await this.credits.release(
+        config.charge.userId,
+        refund,
+        new Date(`${config.charge.day}T00:00:00Z`),
+      );
+  }
+
   /** Continue a paused batch (or one whose worker died). */
   async resume(projectId: number, batchId: number) {
     const b = await this.findBatch(projectId, batchId);
@@ -543,6 +701,10 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
     const b = await this.findBatch(projectId, batchId);
     if (b.status === 'RUNNING')
       throw new ConflictException('The batch is still running');
+    if (b.kind === 'adhoc')
+      throw new ConflictException(
+        'Manual runs are not retried; credits for prompts that failed completely were given back. Start a new manual run instead.',
+      );
     const { count } = await this.prisma.geoRun.updateMany({
       where: { batchId: b.id, status: 'FAILED' },
       data: { status: 'PENDING', errorType: null, errorMessage: null },
@@ -574,10 +736,13 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
   async batches(projectId: number) {
     return this.prisma.geoBatch.findMany({
       where: { projectId },
-      orderBy: { period: 'desc' },
+      orderBy: { startedAt: 'desc' },
       select: {
         id: true,
         period: true,
+        kind: true,
+        label: true,
+        createdById: true,
         status: true,
         trigger: true,
         total: true,
@@ -689,6 +854,7 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
         },
       });
       this.log.log(`GEO batch ${batchId} done: ${ok} ok, ${bad} failed`);
+      await this.refundFailedPrompts(batchId);
     } catch (e) {
       this.log.error(`GEO batch ${batchId} stopped`, (e as Error).stack);
       await this.prisma.geoBatch.update({
