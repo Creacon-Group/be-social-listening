@@ -20,6 +20,28 @@ import {
 import { FileStore } from './file-store.js';
 
 /** Zanroo puts several image URLs in one cell, separated by ", ". Keep a few https links. */
+const REACTIONS = [
+  'love',
+  'wow',
+  'haha',
+  'angry',
+  'sad',
+  'impress',
+  'scary',
+  'dislikes',
+  'favorites',
+] as const;
+
+/** Facebook-style reactions and favorites; only non-zero values are kept. */
+const reactionsOf = (raw: Record<string, unknown>) => {
+  const out: Record<string, number> = {};
+  for (const k of REACTIONS) {
+    const v = asNumber(raw[`r_${k}`]);
+    if (v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+};
+
 const imageLinks = (v: unknown) =>
   String(v ?? '')
     .split(/,\s*(?=https?:\/\/)/)
@@ -139,6 +161,8 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
             where: asString(raw.source_name),
             country: asString(raw.country),
             types: asString(raw.types),
+            keywordType: asString(raw.keyword_type),
+            reactions: reactionsOf(raw),
             categories: categoriesOf(cells, h.categories),
             gender: asString(raw.gender),
             hasc: asString(raw.hasc), // e.g. ID.JI.BW: country.province.regency

@@ -13,7 +13,10 @@ import {
 import { PrismaService } from '../../database/prisma.service.js';
 import { Channel, SentimentLabel } from '../../generated/prisma/enums.js';
 
-export type DateRangePreset = 'today' | '7d' | '30d' | 'custom';
+export type DateRangePreset =
+  'today' | '7d' | '30d' | '90d' | '365d' | 'custom';
+export type Voice = 'owned' | 'earned';
+export type PaidFilter = 'paid' | 'organic';
 
 const csv = ({ value }: { value: unknown }) =>
   typeof value === 'string'
@@ -26,7 +29,7 @@ const csv = ({ value }: { value: unknown }) =>
 /** Shared by the dashboard, the mentions feed and the AI tools: one filter, one set of numbers. */
 export class MentionFilterDto {
   @IsOptional()
-  @IsIn(['today', '7d', '30d', 'custom'])
+  @IsIn(['today', '7d', '30d', '90d', '365d', 'custom'])
   range?: DateRangePreset = '7d';
 
   @ValidateIf((o: MentionFilterDto) => o.range === 'custom')
@@ -62,6 +65,23 @@ export class MentionFilterDto {
   @IsString()
   @MaxLength(100)
   q?: string; // keyword search (LIKE) on content
+
+  /** owned = brand's own accounts (Zanroo "Brand Voice" tag or an account marked Official); earned = everyone else. */
+  @IsOptional()
+  @IsIn(['owned', 'earned'])
+  voice?: Voice;
+
+  /** Zanroo keywords (exact), e.g. a campaign keyword such as "Activation Tri". Any of them matches. */
+  @IsOptional()
+  @Transform(csv)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  keywords?: string[];
+
+  /** paid = authors an analyst marked as paid; organic = everyone else. */
+  @IsOptional()
+  @IsIn(['paid', 'organic'])
+  paid?: PaidFilter;
 }
 
 export interface ResolvedFilter {
@@ -73,6 +93,11 @@ export interface ResolvedFilter {
   brandIds?: number[];
   categoryIds?: number[];
   q?: string;
+  voice?: Voice;
+  keywords?: string[];
+  paid?: PaidFilter;
+  /** Project setting: whether neutral mentions are in the Net Sentiment base. */
+  nssIncludeNeutral: boolean;
 }
 
 export const WIB_OFFSET_H = 7; // Indonesia has no DST; a "day" is a WIB calendar day
@@ -107,11 +132,24 @@ export class FilterResolver {
       if (to <= from) [from, to] = [addDays(to, -1), addDays(from, 1)];
     } else {
       const asOf = (await this.dataAsOf(projectId)) ?? new Date();
-      const days = dto.range === 'today' ? 1 : dto.range === '30d' ? 30 : 7;
+      const days =
+        dto.range === 'today'
+          ? 1
+          : dto.range === '30d'
+            ? 30
+            : dto.range === '90d'
+              ? 90
+              : dto.range === '365d'
+                ? 365
+                : 7;
       to = addDays(wibDayStart(toWibYmd(asOf)), 1);
       from = addDays(to, -days);
     }
     const nonEmpty = <T>(a?: T[]) => (a?.length ? a : undefined);
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { nssIncludeNeutral: true },
+    });
     return {
       projectId,
       from,
@@ -121,6 +159,10 @@ export class FilterResolver {
       brandIds: nonEmpty(dto.brandIds),
       categoryIds: nonEmpty(dto.categoryIds),
       q: dto.q?.trim() || undefined,
+      voice: dto.voice,
+      keywords: nonEmpty(dto.keywords),
+      paid: dto.paid,
+      nssIncludeNeutral: project?.nssIncludeNeutral ?? true,
     };
   }
 }

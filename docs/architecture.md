@@ -38,10 +38,17 @@ Zanroo exports have no brand column. Brands are derived from the `Keyword` colum
 | SOV (brand) | Brand volume ÷ sum of all brand volumes × 100 |
 | Own brands | Indosat + Tri as one group, unique mentions |
 | Own SOV | Own unique mentions ÷ unique mentions naming any brand × 100 |
-| Net Sentiment | (positive − negative) ÷ total × 100, from labels |
+| Net Sentiment | (positive − negative) ÷ total × 100, from labels. Per project (`projects.nssIncludeNeutral = false`): ÷ (positive + negative) instead |
+| Owned / earned | Owned = Zanroo tag `Brand Voice` or an author marked `OFFICIAL` in `account_profiles`; earned = all other mentions |
+| Account type | Manual (`account_profiles.accountType`) wins; else Brand Voice → OFFICIAL, Online News/Blog → MEDIA, Zanroo influencer tier tag (Nano…Mega) → KOL, else OTHER |
+| Paid / organic | Only from `account_profiles.isPaid`, set by analysts (bulk via `PUT /projects/:id/accounts`); applies to every mention of that author |
+| Engagement | Zanroo `Engagements` column (includes video views); breakdown from Likes/Comments/Shares/Views/Bookmarks and reactions in `extra.reactions` |
+| Growth | Change against the previous period of the same length; Net Sentiment change in points |
 | ratioToOwn | Brand volume ÷ own unique mentions (pending confirmation of the "Ratio" column definition) |
 
-Date presets (`today`, `7d`, `30d`) count back from the latest mention in the project, because data arrives in monthly files. Days are WIB calendar days; timestamps are stored in UTC.
+Trends take `?interval=hour|day|week|month|quarter|year` (WIB buckets, weeks start Monday; hourly only up to 31 days). Keywords (`extra.keywords`) keep the raw Zanroo Keyword values, so campaign keywords such as "Activation Tri" can be filtered (`keywords=`) and ranked (`/analytics/keywords`). Re-uploading a file backfills `keywords`, `keywordType` and `reactions` on existing rows.
+
+Date presets (`today`, `7d`, `30d`, `90d`, `365d`) count back from the latest mention in the project, because data arrives in monthly files. Days are WIB calendar days; timestamps are stored in UTC.
 
 ## AI Brand Assistant
 

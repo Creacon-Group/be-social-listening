@@ -6,7 +6,13 @@ import {
   toWibYmd,
 } from '../mentions/mention-filter.js';
 import { PrismaService } from '../../database/prisma.service.js';
-import { AnalyticsRepository, type CountsRow } from './analytics.repository.js';
+import {
+  AnalyticsRepository,
+  type CountsRow,
+  type Interval,
+  TIERS,
+} from './analytics.repository.js';
+import type { ResolvedFilter } from '../mentions/mention-filter.js';
 import { PROVINCES } from './regions.js';
 
 export type InfluencerSort = 'reach' | 'engagements' | 'mentions';
@@ -20,8 +26,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const pct = (part: number, whole: number) =>
   whole ? round1((part / whole) * 100) : 0;
 
-/** Net Sentiment = (positive - negative) / total x 100, from label counts. */
-export const metrics = (r: CountsRow) => {
+/**
+ * Net Sentiment = (positive - negative) / base x 100, from label counts. The base is all mentions,
+ * or positive + negative only when the project leaves neutral out (project setting).
+ */
+export const metrics = (r: CountsRow, includeNeutral = true) => {
   const total = num(r.total);
   const positive = num(r.positive);
   const negative = num(r.negative);
@@ -30,9 +39,70 @@ export const metrics = (r: CountsRow) => {
     positive,
     neutral: num(r.neutral),
     negative,
-    netSentiment: pct(positive - negative, total),
+    netSentiment: pct(
+      positive - negative,
+      includeNeutral ? total : positive + negative,
+    ),
   };
 };
+
+const HOUR_MS = 3_600_000;
+const WIB_MS = 7 * HOUR_MS;
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Every bucket key between from (inclusive) and to (exclusive), in the same format as bucketSql,
+ * so empty buckets show as zero.
+ */
+export function bucketKeys(from: Date, to: Date, interval: Interval): string[] {
+  const keys: string[] = [];
+  const add = (k: string) => {
+    if (keys[keys.length - 1] !== k) keys.push(k);
+  };
+  const w = (t: number) => new Date(t + WIB_MS); // read with getUTC* = WIB wall clock
+  const key = (d: Date) => {
+    const y = d.getUTCFullYear();
+    const mo = d.getUTCMonth() + 1;
+    const ymd = `${y}-${pad(mo)}-${pad(d.getUTCDate())}`;
+    switch (interval) {
+      case 'hour':
+        return `${ymd} ${pad(d.getUTCHours())}:00`;
+      case 'week': {
+        const back = (d.getUTCDay() + 6) % 7; // days since Monday
+        const mon = new Date(d.getTime() - back * DAY_MS);
+        return `${mon.getUTCFullYear()}-${pad(mon.getUTCMonth() + 1)}-${pad(mon.getUTCDate())}`;
+      }
+      case 'month':
+        return `${y}-${pad(mo)}`;
+      case 'quarter':
+        return `${y}-Q${Math.ceil(mo / 3)}`;
+      case 'year':
+        return String(y);
+      default:
+        return ymd;
+    }
+  };
+  const step = interval === 'hour' ? HOUR_MS : DAY_MS;
+  for (let t = from.getTime(); t < to.getTime(); t += step) add(key(w(t)));
+  return keys;
+}
+
+/** Hourly buckets over long periods are unreadable and heavy: fall back to days past 31 days. */
+const MAX_HOURLY_DAYS = 31;
+
+const M = (f: ResolvedFilter) => (r: CountsRow) =>
+  metrics(r, f.nssIncludeNeutral);
+
+/** Previous period of the same length, for growth figures. */
+const previousOf = (f: ResolvedFilter): ResolvedFilter => {
+  const span = f.to.getTime() - f.from.getTime();
+  return { ...f, from: new Date(f.from.getTime() - span), to: f.from };
+};
+
+const growth = (now: number, before: number) =>
+  before ? round1(((now - before) / before) * 100) : null;
+
+export type AccountTypeName = 'KOL' | 'MEDIA' | 'OFFICIAL' | 'OTHER';
 
 @Injectable()
 export class AnalyticsService {
@@ -49,6 +119,7 @@ export class AnalyticsService {
    */
   async categoryTopics(projectId: number, dto: MentionFilterDto) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
     const span = f.to.getTime() - f.from.getTime();
     const prev = { ...f, from: new Date(f.from.getTime() - span), to: f.from };
     const [categories, brands, rows, prevRows, coverage, byBrand, trend] =
@@ -76,9 +147,7 @@ export class AnalyticsService {
     const topics = categories
       .map((c) => {
         const r = rowOf.get(c.id);
-        const m = metrics(
-          r ?? { total: 0, positive: 0, neutral: 0, negative: 0 },
-        );
+        const m = mx(r ?? { total: 0, positive: 0, neutral: 0, negative: 0 });
         const before = prevOf.get(c.id) ?? 0;
         const perDay = new Map(
           trend
@@ -105,9 +174,7 @@ export class AnalyticsService {
                 name: b.name,
                 isOwn: b.isOwn,
                 color: b.color,
-                ...metrics(
-                  x ?? { total: 0, positive: 0, neutral: 0, negative: 0 },
-                ),
+                ...mx(x ?? { total: 0, positive: 0, neutral: 0, negative: 0 }),
               };
             })
             .filter((b) => b.total > 0)
@@ -137,18 +204,178 @@ export class AnalyticsService {
     return { dataAsOf: d, dataAsOfWib: d ? toWibYmd(d) : null };
   }
 
+  /**
+   * Summary numbers: totals with growth against the previous period of the same length, what
+   * engagement is made of, owned vs earned, and volume per channel.
+   */
   async overview(projectId: number, dto: MentionFilterDto) {
     const f = await this.filters.resolve(projectId, dto);
-    const [r, channels] = await Promise.all([
+    const mx = M(f);
+    const [r, prev, b, channels] = await Promise.all([
       this.repo.overview(f),
+      this.repo.overview(previousOf(f)),
+      this.repo.breakdown(f),
       this.repo.byChannel(f),
     ]);
-    return {
-      period: periodOf(f),
-      ...metrics(r),
+    const now = {
+      ...mx(r),
       engagements: num(r.engagements),
       reach: num(r.reach),
-      channels: channels.map((c) => ({ channel: c.channel, ...metrics(c) })),
+    };
+    const before = {
+      ...mx(prev),
+      engagements: num(prev.engagements),
+      reach: num(prev.reach),
+    };
+    const ownedTotal = num(b.ownedTotal);
+    return {
+      period: periodOf(f),
+      previousPeriod: periodOf(previousOf(f)),
+      ...now,
+      previous: before,
+      growth: {
+        total: growth(now.total, before.total),
+        positive: growth(now.positive, before.positive),
+        neutral: growth(now.neutral, before.neutral),
+        negative: growth(now.negative, before.negative),
+        engagements: growth(now.engagements, before.engagements),
+        reach: growth(now.reach, before.reach),
+        netSentiment: before.total
+          ? round1(now.netSentiment - before.netSentiment)
+          : null, // points, not %
+      },
+      engagementBreakdown: {
+        likes: num(b.likes),
+        comments: num(b.comments),
+        shares: num(b.shares),
+        views: num(b.views),
+        bookmarks: num(b.bookmarks),
+        reactions: {
+          love: num(b.love),
+          wow: num(b.wow),
+          haha: num(b.haha),
+          sad: num(b.sad),
+          angry: num(b.angry),
+          favorites: num(b.favorites),
+        },
+      },
+      ownedEarned: {
+        owned: {
+          total: ownedTotal,
+          engagements: num(b.ownedEngagements),
+          reach: num(b.ownedReach),
+        },
+        earned: {
+          total: now.total - ownedTotal,
+          engagements: now.engagements - num(b.ownedEngagements),
+          reach: now.reach - num(b.ownedReach),
+        },
+      },
+      channels: channels.map((c) => ({ channel: c.channel, ...mx(c) })),
+    };
+  }
+
+  /** Channel analysis: volume, sentiment, engagement, reach, views and owned share per channel. */
+  async channels(projectId: number, dto: MentionFilterDto) {
+    const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
+    const rows = await this.repo.byChannel(f);
+    const channels = rows.map((c) => {
+      const total = num(c.total);
+      const engagements = num(c.engagements);
+      return {
+        channel: c.channel,
+        ...mx(c),
+        engagements,
+        reach: num(c.reach),
+        views: num(c.views),
+        owned: num(c.owned),
+        earned: total - num(c.owned),
+        engagementPerMention: total ? round1(engagements / total) : 0,
+      };
+    });
+    const total = channels.reduce((s, c) => s + c.total, 0);
+    const engagements = channels.reduce((s, c) => s + c.engagements, 0);
+    return {
+      period: periodOf(f),
+      total,
+      engagements,
+      reach: channels.reduce((s, c) => s + c.reach, 0),
+      engagementPerMention: total ? round1(engagements / total) : 0,
+      channels: channels.map((c) => ({ ...c, share: pct(c.total, total) })),
+    };
+  }
+
+  /** When people post: mentions and engagement per weekday x hour (WIB). */
+  async heatmap(projectId: number, dto: MentionFilterDto) {
+    const f = await this.filters.resolve(projectId, dto);
+    const rows = await this.repo.heatmap(f);
+    const cells = rows.map((r) => ({
+      dow: num(r.dow), // 0 = Monday
+      hour: num(r.hour),
+      total: num(r.total),
+      engagements: num(r.engagements),
+    }));
+    const peak = cells.reduce<(typeof cells)[number] | null>(
+      (best, c) => (!best || c.total > best.total ? c : best),
+      null,
+    );
+    return { period: periodOf(f), cells, peak };
+  }
+
+  /**
+   * Zanroo keywords (brand names, products and campaign keywords such as "Activation Tri") by
+   * volume. A mention with two keywords counts for both.
+   */
+  async keywords(projectId: number, dto: MentionFilterDto, limit = 100) {
+    const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
+    const rows = await this.repo.keywordRows(f);
+    type Agg = {
+      total: number;
+      positive: number;
+      neutral: number;
+      negative: number;
+      engagements: number;
+      reach: number;
+    };
+    const agg = new Map<string, Agg>();
+    for (const r of rows) {
+      const list = (
+        typeof r.keywords === 'string' ? JSON.parse(r.keywords) : r.keywords
+      ) as string[] | null;
+      for (const k of new Set(list ?? [])) {
+        const a = agg.get(k) ?? {
+          total: 0,
+          positive: 0,
+          neutral: 0,
+          negative: 0,
+          engagements: 0,
+          reach: 0,
+        };
+        a.total++;
+        if (r.sentimentLabel === 'POSITIVE') a.positive++;
+        else if (r.sentimentLabel === 'NEGATIVE') a.negative++;
+        else a.neutral++;
+        a.engagements += num(r.engagements);
+        a.reach += num(r.reach);
+        agg.set(k, a);
+      }
+    }
+    const total = rows.length;
+    return {
+      period: periodOf(f),
+      mentionsWithKeyword: total,
+      keywords: [...agg]
+        .sort((a, b) => b[1].total - a[1].total)
+        .slice(0, limit)
+        .map(([keyword, a]) => ({
+          keyword,
+          ...mx(a),
+          engagements: a.engagements,
+          reach: a.reach,
+          share: pct(a.total, total),
+        })),
     };
   }
 
@@ -162,63 +389,79 @@ export class AnalyticsService {
   async competitors(
     projectId: number,
     dto: MentionFilterDto,
-    opts: { includeTrend?: boolean } = {},
+    opts: { includeTrend?: boolean; interval?: Interval } = {},
   ) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
+    const interval = this.intervalFor(f, opts.interval);
     const [rows, group, trend] = await Promise.all([
       this.repo.byBrand(f),
       this.repo.ownVsAll(f),
       opts.includeTrend === false
         ? Promise.resolve([])
-        : this.repo.trendByBrand(f),
+        : this.repo.trendByBrand(f, interval),
     ]);
 
     const totalMentions = rows.reduce((s, r) => s + num(r.total), 0);
-    const own = metrics(group);
+    const totalEngagements = rows.reduce((s, r) => s + num(r.engagements), 0);
+    const totalReach = rows.reduce((s, r) => s + num(r.reach), 0);
+    const own = mx(group);
     const brands = rows
       .map((r) => ({
         brandId: num(r.brandId),
         name: r.name,
         isOwn: Boolean(Number(r.isOwn)),
-        ...metrics(r),
+        ...mx(r),
+        engagements: num(r.engagements),
+        reach: num(r.reach),
         sov: pct(num(r.total), totalMentions),
+        engagementShare: pct(num(r.engagements), totalEngagements),
+        reachShare: pct(num(r.reach), totalReach),
         ratioToOwn: own.total ? round2(num(r.total) / own.total) : null,
       }))
       .sort((a, b) => b.total - a.total);
 
     return {
       period: periodOf(f),
+      interval,
+      buckets: bucketKeys(f.from, f.to, interval),
       totalBrandMentions: totalMentions,
       own: { ...own, sov: pct(num(group.ownMentions), num(group.allMentions)) },
       brands,
       trend: trend.map((t) => ({
         day: String(t.day),
         brandId: num(t.brandId),
-        ...metrics(t),
+        ...mx(t),
+        engagements: num(t.engagements),
+        reach: num(t.reach),
       })),
     };
   }
 
-  /** Daily mentions, reach and sentiment; days without mentions are filled with zero. */
-  async trend(projectId: number, dto: MentionFilterDto) {
+  private intervalFor(f: ResolvedFilter, wanted?: Interval): Interval {
+    const days = (f.to.getTime() - f.from.getTime()) / DAY_MS;
+    if (wanted === 'hour' && days > MAX_HOURLY_DAYS) return 'day';
+    return wanted ?? 'day';
+  }
+
+  /**
+   * Mentions, reach, engagement and sentiment per time bucket (hour..year, WIB); empty buckets are
+   * zero. `days` keeps its name for older clients; each item's `day` is the bucket key.
+   */
+  async trend(projectId: number, dto: MentionFilterDto, wanted?: Interval) {
     const f = await this.filters.resolve(projectId, dto);
-    const rows = await this.repo.daily(f);
-    const byDay = new Map(rows.map((r) => [String(r.day), r]));
-    const period = periodOf(f);
-    const days: string[] = [];
-    for (
-      let t = Date.parse(`${period.from}T00:00:00Z`);
-      t <= Date.parse(`${period.to}T00:00:00Z`);
-      t += DAY_MS
-    )
-      days.push(new Date(t).toISOString().slice(0, 10));
+    const mx = M(f);
+    const interval = this.intervalFor(f, wanted);
+    const rows = await this.repo.buckets(f, interval);
+    const byKey = new Map(rows.map((r) => [String(r.day), r]));
     return {
-      period,
-      days: days.map((day) => {
-        const r = byDay.get(day);
+      period: periodOf(f),
+      interval,
+      days: bucketKeys(f.from, f.to, interval).map((day) => {
+        const r = byKey.get(day);
         return {
           day,
-          ...metrics(r ?? { total: 0, positive: 0, neutral: 0, negative: 0 }),
+          ...mx(r ?? { total: 0, positive: 0, neutral: 0, negative: 0 }),
           reach: num(r?.reach),
           engagements: num(r?.engagements),
         };
@@ -226,34 +469,51 @@ export class AnalyticsService {
     };
   }
 
-  /** Top authors and top sites/platforms. */
+  /** Top authors (with account type, tier and paid flag) and top sites/platforms. */
   async influencers(
     projectId: number,
     dto: MentionFilterDto,
-    opts: { sort?: InfluencerSort; limit?: number } = {},
+    opts: {
+      sort?: InfluencerSort;
+      limit?: number;
+      types?: AccountTypeName[];
+    } = {},
   ) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
     const [authors, sources] = await Promise.all([
-      this.repo.influencers(f, opts.sort ?? 'reach', opts.limit ?? 50),
+      this.repo.influencers(
+        f,
+        opts.sort ?? 'reach',
+        opts.limit ?? 50,
+        opts.types,
+      ),
       this.repo.sources(f, 30),
     ]);
     return {
       period: periodOf(f),
-      authors: authors.map((a) => ({
-        channel: a.channel,
-        handle: a.handle,
-        name: a.name,
-        followers: num(a.followers),
-        verified: Boolean(Number(a.verified)),
-        userLink: a.userLink && a.userLink !== 'null' ? a.userLink : null,
-        ...metrics(a),
-        reach: num(a.reach),
-        engagements: num(a.engagements),
-      })),
+      authors: authors.map((a) => {
+        const rank = num(a.tierRank);
+        return {
+          channel: a.channel,
+          handle: a.handle,
+          name: a.name,
+          followers: num(a.followers),
+          verified: Boolean(Number(a.verified)),
+          userLink: a.userLink && a.userLink !== 'null' ? a.userLink : null,
+          accountType: a.accountType as AccountTypeName,
+          typeSource: a.manualType ? ('manual' as const) : ('zanroo' as const),
+          tier: rank ? TIERS[rank - 1].replace(' Influencer', '') : null,
+          isPaid: a.isPaid === null ? null : Boolean(Number(a.isPaid)),
+          ...mx(a),
+          reach: num(a.reach),
+          engagements: num(a.engagements),
+        };
+      }),
       sources: sources.map((s) => ({
         host: s.host,
         channel: s.channel,
-        ...metrics(s),
+        ...mx(s),
         reach: num(s.reach),
         engagements: num(s.engagements),
       })),
@@ -266,6 +526,7 @@ export class AnalyticsService {
    */
   async demographics(projectId: number, dto: MentionFilterDto) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
     const [gender, province, country] = await Promise.all([
       this.repo.demographic(f, 'gender'),
       this.repo.demographic(f, 'province'),
@@ -281,11 +542,11 @@ export class AnalyticsService {
     for (const g of gender) {
       const label = GENDER[clean(g.value) ?? ''] ?? 'Unknown';
       const prev = genderRows.get(label);
-      const m = metrics(g);
+      const m = mx(g);
       genderRows.set(
         label,
         prev
-          ? metrics({
+          ? mx({
               total: prev.total + m.total,
               positive: prev.positive + m.positive,
               neutral: prev.neutral + m.neutral,
@@ -304,18 +565,19 @@ export class AnalyticsService {
       provinces: located.map((p) => ({
         code: p.value!,
         name: PROVINCES[p.value!] ?? p.value!,
-        ...metrics(p),
+        ...mx(p),
         reach: num(p.reach),
       })),
       countries: country
         .filter((c) => clean(c.value))
-        .map((c) => ({ code: c.value!.toUpperCase(), ...metrics(c) })),
+        .map((c) => ({ code: c.value!.toUpperCase(), ...mx(c) })),
     };
   }
 
   /** Hashtags extracted from mention text, with volume, engagement and sentiment. */
   async hashtags(projectId: number, dto: MentionFilterDto, limit = 50) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
     const rows = await this.repo.hashtagRows(f);
     type Agg = {
       tag: string;
@@ -366,7 +628,7 @@ export class AnalyticsService {
         .slice(0, limit)
         .map(({ channels, ...a }) => ({
           ...a,
-          ...metrics(a),
+          ...mx(a),
           topChannel:
             Object.entries(channels).sort((x, y) => y[1] - x[1])[0]?.[0] ??
             null,
@@ -377,6 +639,7 @@ export class AnalyticsService {
   /** Zanroo topic labels by volume and sentiment (input for AI Insights). */
   async topics(projectId: number, dto: MentionFilterDto, limit = 15) {
     const f = await this.filters.resolve(projectId, dto);
+    const mx = M(f);
     const rows = await this.repo.topicRows(f);
     const agg = new Map<
       string,
@@ -411,6 +674,6 @@ export class AnalyticsService {
     return [...agg]
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, limit)
-      .map(([topic, a]) => ({ topic, ...metrics(a), reach: a.reach }));
+      .map(([topic, a]) => ({ topic, ...mx(a), reach: a.reach }));
   }
 }

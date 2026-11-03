@@ -19,7 +19,14 @@ export interface MentionWriter {
 export const MENTION_WRITER = Symbol('MENTION_WRITER');
 
 /** `extra` keys copied onto rows that already exist when the same mention is uploaded again. */
-const BACKFILL_KEYS = ['preview', 'gender', 'hasc'] as const;
+const BACKFILL_KEYS = [
+  'preview',
+  'gender',
+  'hasc',
+  'keywords',
+  'keywordType',
+  'reactions',
+] as const;
 
 const backfillPatch = (extra?: Record<string, unknown>) => {
   const patch = Object.fromEntries(
@@ -30,6 +37,10 @@ const backfillPatch = (extra?: Record<string, unknown>) => {
   );
   return Object.keys(patch).length ? JSON.stringify(patch) : null;
 };
+
+/** The raw Zanroo keywords are kept on the row: keyword and campaign breakdowns read them. */
+const withKeywords = (m: ResolvedMention['mention']) =>
+  m.brandKeywords.length ? { ...m.extra, keywords: m.brandKeywords } : m.extra;
 
 @Injectable()
 export class PrismaMentionWriter implements MentionWriter {
@@ -73,7 +84,7 @@ export class PrismaMentionWriter implements MentionWriter {
             sentimentScore: m.sentiment.score,
             location: m.location,
             tags: m.tags as Prisma.InputJsonValue | undefined,
-            extra: m.extra as Prisma.InputJsonValue | undefined,
+            extra: withKeywords(m) as Prisma.InputJsonValue | undefined,
           })),
         });
 
@@ -155,7 +166,7 @@ export class PrismaMentionWriter implements MentionWriter {
     const patches = rows
       .map((i) => ({
         id: i.mention.externalId,
-        patch: backfillPatch(i.mention.extra),
+        patch: backfillPatch(withKeywords(i.mention)),
       }))
       .filter((i): i is { id: string; patch: string } => i.patch !== null);
     for (let i = 0; i < patches.length; i += 100) {
