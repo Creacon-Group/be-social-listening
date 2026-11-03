@@ -105,12 +105,23 @@ const ID_WORDS = new Set([
   'sebaiknya',
 ]);
 
-/** Rough check used to drop English suggestions when the project asks for Bahasa Indonesia. */
-export function looksEnglish(text: string): boolean {
+const languageScore = (text: string) => {
   const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
-  const en = words.filter((w) => EN_WORDS.has(w)).length;
-  const id = words.filter((w) => ID_WORDS.has(w)).length;
+  return {
+    en: words.filter((w) => EN_WORDS.has(w)).length,
+    id: words.filter((w) => ID_WORDS.has(w)).length,
+  };
+};
+
+/** Rough checks used to drop suggestions that are not in the project's prompt language. */
+export function looksEnglish(text: string): boolean {
+  const { en, id } = languageScore(text);
   return en >= 2 && en > id;
+}
+
+export function looksIndonesian(text: string): boolean {
+  const { en, id } = languageScore(text);
+  return id >= 2 && id > en;
 }
 
 const owns = (domain: string, list: string[]) =>
@@ -320,6 +331,30 @@ export class GeoService {
    */
   async suggestPrompts(projectId: number, userId: number, perCategory = 2) {
     const s = await this.settings(projectId);
+    const languages: ('id' | 'en')[] =
+      s.profile.language === 'both'
+        ? ['id', 'en']
+        : s.profile.language === 'en'
+          ? ['en']
+          : ['id'];
+    let created = 0;
+    let skipped = 0;
+    for (const lang of languages) {
+      const r = await this.suggestIn(projectId, userId, s, lang, perCategory);
+      created += r.created;
+      skipped += r.skipped;
+    }
+    return { created, skipped, languages };
+  }
+
+  /** One suggestion call in one language; suggestions in the other language are dropped. */
+  private async suggestIn(
+    projectId: number,
+    userId: number,
+    s: Awaited<ReturnType<GeoService['settings']>>,
+    lang: 'id' | 'en',
+    perCategory: number,
+  ) {
     const competitors = s.brands.filter((b) => !b.isOwn).map((b) => b.name);
     const target =
       s.profile.targetName ||
@@ -327,10 +362,10 @@ export class GeoService {
         .filter((b) => b.isOwn)
         .map((b) => b.name)
         .join(' / ');
-    const indonesian = s.profile.language !== 'en';
-    const languageRule = indonesian
-      ? `LANGUAGE: every "text" MUST be in Bahasa Indonesia, casual and natural, the way people in Indonesia type to an AI assistant (e.g. "Operator seluler apa yang paling stabil buat main game online?"). Do NOT write any question in English. Only the "category" values stay in English.`
-      : 'LANGUAGE: write every "text" in English.';
+    const languageRule =
+      lang === 'id'
+        ? `LANGUAGE: every "text" MUST be in Bahasa Indonesia, casual and natural, the way people in Indonesia type to an AI assistant (e.g. "Operator seluler apa yang paling stabil buat main game online?"). Do NOT write any question in English. Only the "category" values stay in English.`
+        : 'LANGUAGE: every "text" MUST be in English (e.g. "Which mobile operator is most reliable for online gaming?"). Do NOT write any question in Bahasa Indonesia.';
     const prompt = `${languageRule}
 
 Write benchmark questions that real consumers would ask an AI assistant.
@@ -348,9 +383,7 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
     const c = await this.ai.complete(
       this.evaluatorKey,
       [{ role: 'user', content: prompt }],
-      {
-        temperature: 0.7,
-      },
+      { temperature: 0.7 },
     );
     const start = c.text.indexOf('{');
     const end = c.text.lastIndexOf('}');
@@ -369,7 +402,7 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
     let skipped = 0;
     for (const p of list) {
       if (!p.text?.trim() || !cats.has(p.category ?? '')) continue;
-      if (indonesian && looksEnglish(p.text)) {
+      if (lang === 'id' ? looksEnglish(p.text) : looksIndonesian(p.text)) {
         skipped++;
         continue;
       }
@@ -377,7 +410,7 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
         text: p.text.slice(0, 1000),
         category: p.category as GeoPromptCategory,
         branded: !!p.branded,
-        language: s.profile.language ?? 'id',
+        language: lang,
         source: 'suggested',
       });
       created++;

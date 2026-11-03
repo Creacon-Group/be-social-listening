@@ -10,7 +10,7 @@ import {
 } from './geo-evaluator.js';
 import { brandKpis, groupKpis, type ResponseRow } from './geo-metrics.js';
 import { citationDomain, classify, parseCompletion } from './sumopod.client.js';
-import { looksEnglish } from './geo.service.js';
+import { looksEnglish, looksIndonesian } from './geo.service.js';
 
 const IOH: Entity = {
   isTarget: true,
@@ -313,6 +313,17 @@ describe('suggestion language check', () => {
     ).toBe(false);
     expect(
       looksEnglish('Bandingkan IM3 dan Telkomsel untuk streaming video.'),
+    ).toBe(false);
+  });
+
+  it('flags Indonesian questions for English projects', () => {
+    expect(
+      looksIndonesian(
+        'Operator seluler apa yang paling stabil buat main game online?',
+      ),
+    ).toBe(true);
+    expect(
+      looksIndonesian('Which provider is best for gaming in Indonesia?'),
     ).toBe(false);
   });
 });

@@ -52,7 +52,7 @@ class ProfileDto {
   @IsOptional() @IsString() @MaxLength(120) targetName?: string;
   @IsOptional() @IsString() @MaxLength(120) industry?: string;
   @IsOptional() @IsString() @MaxLength(120) market?: string;
-  @IsOptional() @IsIn(['id', 'en']) language?: string;
+  @IsOptional() @IsIn(['id', 'en', 'both']) language?: string; // prompt language(s)
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
 }
 
