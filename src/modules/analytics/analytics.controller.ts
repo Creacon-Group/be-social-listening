@@ -1,7 +1,16 @@
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { MentionFilterDto } from '../mentions/mention-filter.js';
-import { AnalyticsService, type InfluencerSort } from './analytics.service.js';
+import { INTERVALS, type Interval } from './analytics.repository.js';
+import {
+  type AccountTypeName,
+  AnalyticsService,
+  type InfluencerSort,
+} from './analytics.service.js';
+
+const TYPES: AccountTypeName[] = ['KOL', 'MEDIA', 'OFFICIAL', 'OTHER'];
+const intervalOf = (v?: string) =>
+  INTERVALS.includes(v as Interval) ? (v as Interval) : undefined;
 
 @ApiTags('analytics')
 @Controller('projects/:projectId/analytics')
@@ -26,16 +35,45 @@ export class AnalyticsController {
   competitors(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
+    @Query('interval') interval?: string,
   ) {
-    return this.analytics.competitors(projectId, filter);
+    return this.analytics.competitors(projectId, filter, {
+      interval: intervalOf(interval),
+    });
   }
 
+  /** ?interval=hour|day|week|month|quarter|year (hour only up to 31 days). */
   @Get('trend')
   trend(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
+    @Query('interval') interval?: string,
   ) {
-    return this.analytics.trend(projectId, filter);
+    return this.analytics.trend(projectId, filter, intervalOf(interval));
+  }
+
+  @Get('channels')
+  channels(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Query() filter: MentionFilterDto,
+  ) {
+    return this.analytics.channels(projectId, filter);
+  }
+
+  @Get('heatmap')
+  heatmap(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Query() filter: MentionFilterDto,
+  ) {
+    return this.analytics.heatmap(projectId, filter);
+  }
+
+  @Get('keywords')
+  keywords(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Query() filter: MentionFilterDto,
+  ) {
+    return this.analytics.keywords(projectId, filter);
   }
 
   @Get('influencers')
@@ -43,10 +81,22 @@ export class AnalyticsController {
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
     @Query('sort') sort?: string,
+    @Query('types') types?: string,
+    @Query('limit') limit?: string,
   ) {
     const s: InfluencerSort =
       sort === 'engagements' || sort === 'mentions' ? sort : 'reach';
-    return this.analytics.influencers(projectId, filter, { sort: s });
+    const t = (types ?? '')
+      .split(',')
+      .filter((x): x is AccountTypeName =>
+        TYPES.includes(x as AccountTypeName),
+      );
+    const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    return this.analytics.influencers(projectId, filter, {
+      sort: s,
+      types: t.length ? t : undefined,
+      limit: n,
+    });
   }
 
   @Get('demographics')

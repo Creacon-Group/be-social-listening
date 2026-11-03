@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { Prisma } from '../../generated/prisma/client.js';
+import { Prisma as PSql, type Prisma } from '../../generated/prisma/client.js';
+import { brandExistsSql, mentionSqlWhere } from './mention-sql.js';
 import {
   type MentionFilterDto,
   FilterResolver,
@@ -10,31 +11,43 @@ import {
 
 export type MentionSort = 'latest' | 'engagements' | 'reach';
 
-export function mentionWhere(f: ResolvedFilter): Prisma.MentionWhereInput {
-  const ids = f.categoryIds?.filter((id) => id > 0) ?? [];
-  const categoryWhere: Prisma.MentionWhereInput[] = f.categoryIds
-    ? [
-        ...(ids.length
-          ? [{ categories: { some: { categoryId: { in: ids } } } }]
-          : []),
-        ...(f.categoryIds.includes(0) ? [{ categories: { none: {} } }] : []),
-      ]
-    : [];
-  return {
-    ...(categoryWhere.length && { OR: categoryWhere }),
-    projectId: f.projectId,
-    publishedAt: { gte: f.from, lt: f.to },
-    ...(f.channels && { channel: { in: f.channels } }),
-    ...(f.sentiments && { sentimentLabel: { in: f.sentiments } }),
-    ...(f.brandIds && { brands: { some: { brandId: { in: f.brandIds } } } }),
-    ...(f.q && { content: { contains: f.q } }),
-  };
+/** Prisma where for one page of ids picked by the shared SQL filter (see mention-sql.ts). */
+export const idsWhere = (ids: number[]): Prisma.MentionWhereInput => ({
+  id: { in: ids },
+});
+
+const ORDER_SQL: Record<MentionSort, Prisma.Sql> = {
+  latest: PSql.sql`m.publishedAt DESC, m.id DESC`,
+  engagements: PSql.sql`m.engagements DESC, m.id DESC`,
+  reach: PSql.sql`m.reach DESC, m.id DESC`,
+};
+
+/** Ids of mentions matching the filter, in order; the same SQL as the dashboard numbers. */
+export async function matchingIds(
+  prisma: PrismaService,
+  f: ResolvedFilter,
+  sort: MentionSort,
+  limit: number,
+  offset = 0,
+): Promise<number[]> {
+  const rows = await prisma.$queryRaw<{ id: number }[]>`
+    SELECT m.id FROM mentions m
+    WHERE ${mentionSqlWhere(f)} ${brandExistsSql(f)}
+    ORDER BY ${ORDER_SQL[sort]}
+    LIMIT ${limit} OFFSET ${offset}`;
+  return rows.map((r) => Number(r.id));
 }
 
-const ORDER: Record<MentionSort, Prisma.MentionOrderByWithRelationInput[]> = {
-  latest: [{ publishedAt: 'desc' }, { id: 'desc' }],
-  engagements: [{ engagements: 'desc' }, { id: 'desc' }],
-  reach: [{ reach: 'desc' }, { id: 'desc' }],
+export async function countMatching(prisma: PrismaService, f: ResolvedFilter) {
+  const [r] = await prisma.$queryRaw<{ n: unknown }[]>`
+    SELECT COUNT(*) AS n FROM mentions m WHERE ${mentionSqlWhere(f)} ${brandExistsSql(f)}`;
+  return Number(r?.n ?? 0);
+}
+
+/** Rows fetched by id come back unordered; put them in the order of `ids`. */
+export const inOrder = <T extends { id: number }>(ids: number[], rows: T[]) => {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is T => !!r);
 };
 
 const mentionSelect = {
@@ -102,20 +115,23 @@ export class MentionsService {
     opts: { page: number; pageSize: number; sort: MentionSort },
   ) {
     const f = await this.filters.resolve(projectId, dto);
-    const where = mentionWhere(f);
-    const [rows, total] = await Promise.all([
-      this.prisma.mention.findMany({
-        where,
-        orderBy: ORDER[opts.sort],
-        skip: (opts.page - 1) * opts.pageSize,
-        take: opts.pageSize,
-        select: mentionSelect,
-      }),
-      this.prisma.mention.count({ where }),
+    const [ids, total] = await Promise.all([
+      matchingIds(
+        this.prisma,
+        f,
+        opts.sort,
+        opts.pageSize,
+        (opts.page - 1) * opts.pageSize,
+      ),
+      countMatching(this.prisma, f),
     ]);
+    const rows = await this.prisma.mention.findMany({
+      where: idsWhere(ids),
+      select: mentionSelect,
+    });
     return {
       period: periodOf(f),
-      items: rows.map(toView),
+      items: inOrder(ids, rows).map(toView),
       page: opts.page,
       pageSize: opts.pageSize,
       total,
@@ -129,11 +145,11 @@ export class MentionsService {
     opts: { sort: MentionSort; limit: number },
   ) {
     const f = await this.filters.resolve(projectId, dto);
-    const rows = await this.prisma.mention.findMany({
-      where: mentionWhere(f),
-      orderBy: ORDER[opts.sort],
-      take: opts.limit,
+    const ids = await matchingIds(this.prisma, f, opts.sort, opts.limit);
+    const found = await this.prisma.mention.findMany({
+      where: idsWhere(ids),
       select: {
+        id: true,
         externalId: true,
         channel: true,
         publishedAt: true,
@@ -145,9 +161,10 @@ export class MentionsService {
         brands: { select: { brand: { select: { name: true } } } },
       },
     });
+    const rows = inOrder(ids, found);
     return {
       period: periodOf(f),
-      mentions: rows.map(({ brands, content, ...r }) => ({
+      mentions: rows.map(({ brands, content, id: _id, ...r }) => ({
         ...r,
         brands: brands.map((b) => b.brand.name),
         content: (content ?? '').slice(0, 280),

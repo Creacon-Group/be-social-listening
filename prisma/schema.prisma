@@ -49,6 +49,14 @@ enum UserRole {
   VIEWER
 }
 
+/// How an author is classified. Derived from Zanroo tags when not set by hand.
+enum AccountType {
+  KOL // influencer / creator
+  MEDIA // news site or media account
+  OFFICIAL // a brand's own account (Brand Voice)
+  OTHER // public, community
+}
+
 enum ChatRole {
   USER
   ASSISTANT
@@ -90,6 +98,10 @@ model Project {
   /// Last month sent ("YYYY-MM"), so the daily cron sends each month once.
   lastMonthlyReport    String? @db.VarChar(7)
 
+  // Net Sentiment formula: CIMB counts neutral mentions in the base, Kobelco does not.
+  nssIncludeNeutral Boolean @default(true)
+  showNss           Boolean @default(true)
+
   members      ProjectMember[]
   brands       Brand[]
   mentions     Mention[]
@@ -97,6 +109,7 @@ model Project {
   chatSessions ChatSession[]
   insights     AiInsight[]
   categories   Category[]
+  accounts     AccountProfile[]
 
   @@map("projects")
 }
@@ -326,4 +339,22 @@ model MentionCategory {
   @@id([mentionId, categoryId])
   @@index([categoryId])
   @@map("mention_categories")
+}
+
+/// Manual classification of an author, set by an analyst (single or bulk). Applies to every
+/// mention by that account, past and future uploads.
+model AccountProfile {
+  id          Int          @id @default(autoincrement())
+  projectId   Int
+  channel     Channel
+  handle      String       @db.VarChar(150) // lower case, without '@'
+  accountType AccountType? // null = derive from Zanroo tags
+  isPaid      Boolean? // null = not tagged; true = paid/endorsed; false = organic
+  updatedById Int?
+  updatedAt   DateTime     @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, channel, handle])
+  @@map("account_profiles")
 }

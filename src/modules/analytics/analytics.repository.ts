@@ -5,6 +5,12 @@ import {
   type ResolvedFilter,
   WIB_OFFSET_H,
 } from '../mentions/mention-filter.js';
+import {
+  BRAND_VOICE_TAG,
+  brandExistsSql,
+  mentionSqlWhere,
+  ownedSql,
+} from '../mentions/mention-sql.js';
 
 export interface CountsRow {
   total: bigint | number;
@@ -20,13 +26,80 @@ export interface BrandCountsRow extends CountsRow {
   brandId: number;
   name: string;
   isOwn: number | boolean;
+  engagements: unknown;
+  reach: unknown;
 }
 export interface TrendRow extends CountsRow {
   day: Date | string;
   brandId: number;
+  engagements?: unknown;
+  reach?: unknown;
 }
 
-const escapeLike = (s: string) => s.replace(/[!%_]/g, (c) => `!${c}`);
+export type Interval = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year';
+export const INTERVALS: Interval[] = [
+  'hour',
+  'day',
+  'week',
+  'month',
+  'quarter',
+  'year',
+];
+
+const WIB = Prisma.raw(
+  `DATE_ADD(m.publishedAt, INTERVAL ${WIB_OFFSET_H} HOUR)`,
+);
+
+/** Bucket key per interval, in WIB. Week = the Monday it starts on. Keys match bucketKeys() in the service. */
+export const bucketSql = (i: Interval): Prisma.Sql => {
+  switch (i) {
+    case 'hour':
+      return Prisma.sql`DATE_FORMAT(${WIB}, '%Y-%m-%d %H:00')`;
+    case 'week':
+      return Prisma.sql`DATE_FORMAT(DATE_SUB(DATE(${WIB}), INTERVAL WEEKDAY(${WIB}) DAY), '%Y-%m-%d')`;
+    case 'month':
+      return Prisma.sql`DATE_FORMAT(${WIB}, '%Y-%m')`;
+    case 'quarter':
+      return Prisma.sql`CONCAT(YEAR(${WIB}), '-Q', QUARTER(${WIB}))`;
+    case 'year':
+      return Prisma.sql`DATE_FORMAT(${WIB}, '%Y')`;
+    default:
+      return Prisma.sql`DATE_FORMAT(${WIB}, '%Y-%m-%d')`;
+  }
+};
+
+/** Zanroo influencer tiers (Tag column), smallest to largest. */
+export const TIERS = [
+  'Nano Influencer',
+  'Micro Influencer',
+  'Mid Tier Influencer',
+  'Macro Influencer',
+  'Mega Influencer',
+] as const;
+
+const tagged = (tag: string) =>
+  Prisma.sql`COALESCE(JSON_CONTAINS(m.tags, JSON_QUOTE(${tag})), 0) = 1`;
+
+/** Highest tier rank (1..5) found on the author's mentions, 0 = none. */
+const TIER_RANK = Prisma.sql`MAX(CASE ${Prisma.join(
+  [...TIERS]
+    .map((t, i) => Prisma.sql`WHEN ${tagged(t)} THEN ${i + 1}`)
+    .reverse(),
+  ' ',
+)} ELSE 0 END)`;
+
+/**
+ * Account type: an analyst's choice wins; otherwise Brand Voice tag = OFFICIAL, news/blog = MEDIA,
+ * a Zanroo influencer tier = KOL, anyone else = OTHER.
+ */
+const ACCOUNT_TYPE = Prisma.sql`COALESCE(MAX(ap.accountType), CASE
+  WHEN MAX(${tagged(BRAND_VOICE_TAG)}) = 1 THEN 'OFFICIAL'
+  WHEN m.channel IN ('ONLINE_NEWS', 'BLOG') THEN 'MEDIA'
+  WHEN ${TIER_RANK} > 0 THEN 'KOL'
+  ELSE 'OTHER' END)`;
+
+const json = (path: string) =>
+  Prisma.sql`CAST(COALESCE(JSON_EXTRACT(m.extra, ${path}), 0) AS SIGNED)`;
 
 /** Read side: aggregate SQL kept in one place. Every query is scoped by projectId and the resolved filter. */
 @Injectable()
@@ -34,31 +107,7 @@ export class AnalyticsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   private where(f: ResolvedFilter): Prisma.Sql {
-    const p: Prisma.Sql[] = [
-      Prisma.sql`m.projectId = ${f.projectId}`,
-      Prisma.sql`m.publishedAt >= ${f.from}`,
-      Prisma.sql`m.publishedAt < ${f.to}`,
-    ];
-    if (f.channels)
-      p.push(Prisma.sql`m.channel IN (${Prisma.join(f.channels)})`);
-    if (f.sentiments)
-      p.push(Prisma.sql`m.sentimentLabel IN (${Prisma.join(f.sentiments)})`);
-    if (f.q)
-      p.push(Prisma.sql`m.content LIKE ${`%${escapeLike(f.q)}%`} ESCAPE '!'`);
-    if (f.categoryIds) {
-      const ids = f.categoryIds.filter((id) => id > 0);
-      const any: Prisma.Sql[] = [];
-      if (ids.length)
-        any.push(
-          Prisma.sql`EXISTS (SELECT 1 FROM mention_categories mcf WHERE mcf.mentionId = m.id AND mcf.categoryId IN (${Prisma.join(ids)}))`,
-        );
-      if (f.categoryIds.includes(0))
-        any.push(
-          Prisma.sql`NOT EXISTS (SELECT 1 FROM mention_categories mcf WHERE mcf.mentionId = m.id)`,
-        );
-      if (any.length) p.push(Prisma.sql`(${Prisma.join(any, ' OR ')})`);
-    }
-    return Prisma.join(p, ' AND ');
+    return mentionSqlWhere(f);
   }
 
   private brandCond(f: ResolvedFilter): Prisma.Sql {
@@ -69,9 +118,7 @@ export class AnalyticsRepository {
 
   /** When brands are filtered, the overview counts only mentions of those brands. */
   private brandExists(f: ResolvedFilter): Prisma.Sql {
-    return f.brandIds
-      ? Prisma.sql`AND EXISTS (SELECT 1 FROM mention_brands mb WHERE mb.mentionId = m.id AND mb.brandId IN (${Prisma.join(f.brandIds)}))`
-      : Prisma.empty;
+    return brandExistsSql(f);
   }
 
   async overview(f: ResolvedFilter): Promise<OverviewRow> {
@@ -87,12 +134,64 @@ export class AnalyticsRepository {
     return r;
   }
 
+  /** What engagement is made of, and owned (brand accounts) vs earned. */
+  async breakdown(f: ResolvedFilter) {
+    const [r] = await this.prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT CAST(SUM(m.likes) AS SIGNED) AS likes,
+             CAST(SUM(m.comments) AS SIGNED) AS comments,
+             CAST(SUM(m.shares) AS SIGNED) AS shares,
+             CAST(SUM(m.views) AS SIGNED) AS views,
+             CAST(SUM(${json('$.preview.bookmarks')}) AS SIGNED) AS bookmarks,
+             CAST(SUM(${json('$.reactions.love')}) AS SIGNED) AS love,
+             CAST(SUM(${json('$.reactions.wow')}) AS SIGNED) AS wow,
+             CAST(SUM(${json('$.reactions.haha')}) AS SIGNED) AS haha,
+             CAST(SUM(${json('$.reactions.sad')}) AS SIGNED) AS sad,
+             CAST(SUM(${json('$.reactions.angry')}) AS SIGNED) AS angry,
+             CAST(SUM(${json('$.reactions.favorites')}) AS SIGNED) AS favorites,
+             CAST(SUM(${ownedSql()}) AS SIGNED) AS ownedTotal,
+             CAST(SUM(CASE WHEN ${ownedSql()} THEN m.engagements ELSE 0 END) AS SIGNED) AS ownedEngagements,
+             CAST(SUM(CASE WHEN ${ownedSql()} THEN m.reach ELSE 0 END) AS SIGNED) AS ownedReach
+      FROM mentions m
+      WHERE ${this.where(f)} ${this.brandExists(f)}`;
+    return r ?? {};
+  }
+
+  /** Mentions per weekday (0 = Monday) and hour of day, WIB. */
+  heatmap(f: ResolvedFilter) {
+    return this.prisma.$queryRaw<
+      { dow: unknown; hour: unknown; total: unknown; engagements: unknown }[]
+    >`
+      SELECT WEEKDAY(${WIB}) AS dow, HOUR(${WIB}) AS hour, COUNT(*) AS total,
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements
+      FROM mentions m
+      WHERE ${this.where(f)} ${this.brandExists(f)}
+      GROUP BY dow, hour`;
+  }
+
+  /** Raw Zanroo keywords per mention, for the keyword / campaign breakdown (aggregated in code). */
+  keywordRows(f: ResolvedFilter, limit = 120_000) {
+    return this.prisma.$queryRaw<
+      {
+        keywords: unknown;
+        sentimentLabel: string;
+        engagements: unknown;
+        reach: unknown;
+      }[]
+    >`
+      SELECT JSON_EXTRACT(m.extra, '$.keywords') AS keywords, m.sentimentLabel, m.engagements, m.reach
+      FROM mentions m
+      WHERE ${this.where(f)} ${this.brandExists(f)} AND JSON_EXTRACT(m.extra, '$.keywords') IS NOT NULL
+      LIMIT ${limit}`;
+  }
+
   byBrand(f: ResolvedFilter): Promise<BrandCountsRow[]> {
     return this.prisma.$queryRaw<BrandCountsRow[]>`
       SELECT b.id AS brandId, b.name AS name, b.isOwn AS isOwn, COUNT(*) AS total,
              CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
              CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
-             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative
+             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative,
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements,
+             CAST(SUM(m.reach) AS SIGNED) AS reach
       FROM mention_brands mb
       JOIN mentions m ON m.id = mb.mentionId
       JOIN brands b ON b.id = mb.brandId
@@ -121,10 +220,15 @@ export class AnalyticsRepository {
     return r;
   }
 
-  trendByBrand(f: ResolvedFilter): Promise<TrendRow[]> {
+  trendByBrand(
+    f: ResolvedFilter,
+    interval: Interval = 'day',
+  ): Promise<TrendRow[]> {
     return this.prisma.$queryRaw<TrendRow[]>`
-      SELECT DATE_FORMAT(DATE_ADD(m.publishedAt, INTERVAL ${Prisma.raw(String(WIB_OFFSET_H))} HOUR), '%Y-%m-%d') AS day,
+      SELECT ${bucketSql(interval)} AS day,
              mb.brandId AS brandId, COUNT(*) AS total,
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements,
+             CAST(SUM(m.reach) AS SIGNED) AS reach,
              CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
              CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
              CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative
@@ -135,24 +239,36 @@ export class AnalyticsRepository {
       ORDER BY day, mb.brandId`;
   }
 
-  byChannel(f: ResolvedFilter): Promise<(CountsRow & { channel: string })[]> {
-    return this.prisma.$queryRaw<(CountsRow & { channel: string })[]>`
+  byChannel(f: ResolvedFilter) {
+    return this.prisma.$queryRaw<
+      (CountsRow & {
+        channel: string;
+        engagements: unknown;
+        reach: unknown;
+        views: unknown;
+        owned: unknown;
+      })[]
+    >`
       SELECT m.channel AS channel, COUNT(*) AS total,
              CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
              CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
-             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative
+             CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative,
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements,
+             CAST(SUM(m.reach) AS SIGNED) AS reach,
+             CAST(SUM(m.views) AS SIGNED) AS views,
+             CAST(SUM(${ownedSql()}) AS SIGNED) AS owned
       FROM mentions m
       WHERE ${this.where(f)} ${this.brandExists(f)}
       GROUP BY m.channel
       ORDER BY total DESC`;
   }
 
-  /** Daily totals in WIB days: mentions, reach, engagement and sentiment. */
-  daily(f: ResolvedFilter) {
+  /** Totals per time bucket (WIB): mentions, reach, engagement and sentiment. */
+  buckets(f: ResolvedFilter, interval: Interval = 'day') {
     return this.prisma.$queryRaw<
       (CountsRow & { day: string; reach: unknown; engagements: unknown })[]
     >`
-      SELECT DATE_FORMAT(DATE_ADD(m.publishedAt, INTERVAL ${Prisma.raw(String(WIB_OFFSET_H))} HOUR), '%Y-%m-%d') AS day,
+      SELECT ${bucketSql(interval)} AS day,
              COUNT(*) AS total,
              CAST(SUM(m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
              CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
@@ -165,11 +281,15 @@ export class AnalyticsRepository {
       ORDER BY day`;
   }
 
-  /** Authors ranked by reach, engagement or mention count. */
+  /**
+   * Authors ranked by reach, engagement or mention count, with their account type, Zanroo tier
+   * and paid flag. `types` keeps only authors of those types (applied before the limit).
+   */
   influencers(
     f: ResolvedFilter,
     sort: 'reach' | 'engagements' | 'mentions',
     limit: number,
+    types?: string[],
   ) {
     const order =
       sort === 'mentions'
@@ -187,6 +307,10 @@ export class AnalyticsRepository {
         reach: unknown;
         engagements: unknown;
         userLink: string | null;
+        accountType: string;
+        manualType: string | null;
+        tierRank: unknown;
+        isPaid: unknown;
       })[]
     >`
       SELECT m.channel AS channel, m.authorHandle AS handle, MAX(m.authorName) AS name,
@@ -197,10 +321,17 @@ export class AnalyticsRepository {
              CAST(SUM(m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
              CAST(SUM(m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative,
              CAST(SUM(m.reach) AS SIGNED) AS reach,
-             CAST(SUM(m.engagements) AS SIGNED) AS engagements
+             CAST(SUM(m.engagements) AS SIGNED) AS engagements,
+             ${ACCOUNT_TYPE} AS accountType,
+             MAX(ap.accountType) AS manualType,
+             ${TIER_RANK} AS tierRank,
+             MAX(ap.isPaid) AS isPaid
       FROM mentions m
+      LEFT JOIN account_profiles ap
+        ON ap.projectId = m.projectId AND ap.channel = m.channel AND ap.handle = m.authorHandle
       WHERE ${this.where(f)} ${this.brandExists(f)} AND m.authorHandle IS NOT NULL AND m.authorHandle <> ''
       GROUP BY m.channel, m.authorHandle
+      ${types?.length ? Prisma.sql`HAVING accountType IN (${Prisma.join(types)})` : Prisma.empty}
       ORDER BY ${order}
       LIMIT ${limit}`;
   }
