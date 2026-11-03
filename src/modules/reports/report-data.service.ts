@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
+import { GeoAnalyticsService } from '../geo/geo-analytics.service.js';
 import { InsightsService } from '../insights/insights.service.js';
 import type { MentionFilterDto } from '../mentions/mention-filter.js';
 import { barChart, C, lineChart, sentimentChart, toPng } from './charts.js';
@@ -53,6 +54,7 @@ export class ReportDataService {
     private readonly prisma: PrismaService,
     private readonly analytics: AnalyticsService,
     private readonly insights: InsightsService,
+    private readonly geo: GeoAnalyticsService,
   ) {}
 
   async build(projectId: number, dto: MentionFilterDto, mode: InsightMode) {
@@ -98,6 +100,11 @@ export class ReportDataService {
     const period = overview.period;
     const label = rangeLabel(period.from, period.to);
     const colorOf = new Map(brands.map((b) => [b.id, b.color]));
+    // AI visibility: latest monthly GEO run not after the report period; skipped when there is none.
+    const ai = await this.geo.summaryFor(projectId, period.to);
+    const aiQuotes = ai
+      ? await this.geo.quotes(projectId, ai.run.id, { limit: 50 })
+      : [];
     return {
       project: { id: project.id, name: project.name, client },
       title: `Summary Report Social Listening ${client} - ${label}`,
@@ -117,6 +124,8 @@ export class ReportDataService {
       hashtags: hashtags.hashtags,
       insight,
       insightNote,
+      ai,
+      aiQuotes,
     };
   }
 

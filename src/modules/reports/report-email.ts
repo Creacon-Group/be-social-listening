@@ -87,6 +87,22 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
     )
     .join('');
 
+  const rate = (v: number | null) =>
+    v === null ? '–' : `${v.toLocaleString('en-GB')}%`;
+  const aiBlock = d.ai
+    ? `<h2 style="margin:26px 0 10px;font-size:18px;font-weight:600;letter-spacing:-0.3px">AI visibility</h2>
+  <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:${C.muted}">How Gemini and GPT answer consumer questions, from the monthly AI benchmark run ${esc(d.ai.run.period ?? '')}. Not affected by the report filters.</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;font-variant-numeric:tabular-nums">
+    <tr style="color:${C.muted};font-size:12px"><td style="padding:8px;border-bottom:1px solid ${C.line}">Model</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">Mentioned</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">Recommended</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">AI SoV</td></tr>
+    ${d.ai.groups
+      .map(
+        (g) =>
+          `<tr><td style="padding:8px;border-bottom:1px solid ${C.line}">${esc(g.label)}</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">${rate(g.mentionRate)}</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">${rate(g.recommendationRate)}</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">${rate(g.sov)}</td></tr>`,
+      )
+      .join('')}
+  </table>`
+    : '';
+
   return `<!doctype html><html><head><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head><body style="margin:0;padding:0;background:${C.surface}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.surface};font-family:${FONT_STACK};color:${C.ink};-webkit-font-smoothing:antialiased">
 <tr><td align="center" style="padding:28px 12px">
@@ -117,6 +133,7 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
     ${brandRows}
   </table>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px">${img('channels', 'Volume per channel')}</table>
+  ${aiBlock}
   ${
     dashboardUrl
       ? `<p style="margin:24px 0 0"><a href="${esc(dashboardUrl)}" style="display:inline-block;background:${C.ink};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 20px;border-radius:10px">Open the dashboard</a></p>`

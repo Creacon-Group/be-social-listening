@@ -264,6 +264,18 @@ export class GeoController {
     return this.geo.reevaluate(projectId, batchId);
   }
 
+  /** Compact AI visibility for the dashboard: latest monthly run not after `to` (YYYY-MM-DD). */
+  @Get('summary')
+  summary(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Query('to') to?: string,
+  ) {
+    return this.analytics.summaryFor(
+      projectId,
+      to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : undefined,
+    );
+  }
+
   @Get('overview')
   overview(
     @Param('projectId', ParseIntPipe) projectId: number,

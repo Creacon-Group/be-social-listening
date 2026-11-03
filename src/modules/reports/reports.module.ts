@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AnalyticsModule } from '../analytics/analytics.module.js';
+import { GeoReadModule } from '../geo/geo-read.module.js';
 import { InsightsModule } from '../insights/insights.module.js';
 import { MentionsModule } from '../mentions/mentions.module.js';
 import { MailService } from './mail.service.js';
@@ -11,7 +12,7 @@ import {
 import { ReportsService } from './reports.service.js';
 
 @Module({
-  imports: [AnalyticsModule, InsightsModule, MentionsModule],
+  imports: [AnalyticsModule, InsightsModule, MentionsModule, GeoReadModule],
   controllers: [ReportsController, ReportsCronController],
   providers: [ReportDataService, ReportsService, MailService],
 })

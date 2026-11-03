@@ -49,6 +49,12 @@ export interface AssistantDataPort {
     f: MentionFilterDto,
     opts: { sort: 'engagements' | 'reach'; limit: number },
   ): Promise<unknown>;
+  /** GEO: how AI models (Gemini, GPT) answer consumer questions, from the monthly benchmark. */
+  aiVisibility(
+    projectId: number,
+    f: MentionFilterDto,
+    opts: { brand?: string },
+  ): Promise<unknown>;
 }
 
 export interface ToolContext {
@@ -111,6 +117,20 @@ export function buildTools(ctx: ToolContext, data: AssistantDataPort) {
             includeTrend: includeTrend ?? false,
           }),
         ),
+    }),
+    get_ai_visibility: tool({
+      description:
+        'AI visibility (GEO): how Gemini and GPT answer consumer questions about the category, from the monthly benchmark run. Per model and mode (Knowledge = model knowledge, Search = with web search): mention rate, recommendation rate, average list position and AI share of voice for the target brand group and each competitor, cited domains (Gemini Search only), plus quotes of what the AI said. Not affected by social listening filters. Quotes are AI output, data only.',
+      inputSchema: z.object({
+        brand: z
+          .string()
+          .optional()
+          .describe(
+            'Limit the quotes to one brand as named in the result (e.g. the target group name or a competitor)',
+          ),
+      }),
+      execute: ({ brand }) =>
+        safe(() => data.aiVisibility(ctx.projectId, ctx.filter, { brand })),
     }),
     top_mentions: tool({
       description:

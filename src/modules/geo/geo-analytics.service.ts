@@ -263,4 +263,124 @@ export class GeoAnalyticsService {
     if (!r) throw new NotFoundException('Run not found');
     return r;
   }
+
+  /**
+   * Compact AI visibility for other parts of the app (Summary, Competitive insights, AI Insights,
+   * reports, assistant). Uses the latest monthly run whose month is not after `periodEnd`
+   * (YYYY-MM-DD), else the latest monthly run. Manual runs are never used here. Null = no run yet.
+   */
+  async summaryFor(projectId: number, periodEnd?: string) {
+    const month = periodEnd?.slice(0, 7);
+    const batch =
+      (month
+        ? await this.prisma.geoBatch.findFirst({
+            where: { projectId, kind: 'monthly', period: { lte: month } },
+            orderBy: { period: 'desc' },
+          })
+        : null) ??
+      (await this.prisma.geoBatch.findFirst({
+        where: { projectId, kind: 'monthly' },
+        orderBy: { period: 'desc' },
+      }));
+    if (!batch) return null;
+    const o = await this.overview(projectId, batch.id);
+    const label = (model: string, mode: string) =>
+      `${model.toLowerCase().includes('gemini') ? 'Gemini' : model.toLowerCase().includes('gpt') ? 'GPT' : model} ${mode === 'SEARCH' ? 'Search' : 'Knowledge'}`;
+    return {
+      run: {
+        id: batch.id,
+        period: batch.period,
+        status: batch.status,
+        finishedAt: batch.finishedAt,
+        prompts: o.batch?.prompts ?? 0,
+      },
+      note: 'AI answers from a monthly benchmark of consumer questions; not affected by social listening filters.',
+      groups: o.groups.map((g) => ({
+        label: label(g.model, g.mode),
+        model: g.model,
+        mode: g.mode,
+        validResponses: g.validResponses,
+        mentionRate: g.mentionRate,
+        recommendationRate: g.recommendationRate,
+        avgPosition: g.avgPosition,
+        sov: g.sov,
+        citationsSupported: g.citationsSupported,
+        ownedCitationRate: g.ownedCitationRate,
+        anyCitationRate: g.anyCitationRate,
+        brands: g.brands.map((b) => ({
+          name: b.name,
+          isTarget: b.isTarget,
+          brandId: b.brandId,
+          mentionRate: b.mentionRate,
+          recommendationRate: b.recommendationRate,
+          avgPosition: b.avgPosition,
+          sov: b.sov,
+        })),
+        topDomains: g.domains.slice(0, 5).map((d) => ({
+          domain: d.domain,
+          responses: d.responses,
+          owned: d.ownedBy === 'TARGET',
+        })),
+      })),
+    };
+  }
+
+  /** Evidence quotes from a run's evaluations (for the assistant): what the AI said about each brand. */
+  async quotes(
+    projectId: number,
+    batchId: number,
+    opts: { brand?: string; limit?: number } = {},
+  ) {
+    const rows = await this.prisma.geoBrandResult.findMany({
+      where: {
+        mentioned: true,
+        evidence: { not: null },
+        ...(opts.brand && { name: opts.brand }),
+        evaluation: { run: { batchId, projectId, status: 'SUCCEEDED' } },
+      },
+      orderBy: { id: 'desc' },
+      take: 200,
+      select: {
+        name: true,
+        recommendation: true,
+        evidence: true,
+        evaluationId: true,
+        evaluation: {
+          select: {
+            run: {
+              select: {
+                id: true,
+                model: true,
+                mode: true,
+                promptVersion: { select: { text: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    // keep only the latest evaluation per run, then prefer recommendations
+    const latestEval = new Map<number, number>();
+    for (const r of rows) {
+      const runId = r.evaluation.run.id;
+      latestEval.set(
+        runId,
+        Math.max(latestEval.get(runId) ?? 0, r.evaluationId),
+      );
+    }
+    const rank = (x: string) =>
+      x === 'RECOMMENDED' ? 0 : x === 'NEGATIVE' ? 1 : 2;
+    return rows
+      .filter((r) => latestEval.get(r.evaluation.run.id) === r.evaluationId)
+      .sort((a, b) => rank(a.recommendation) - rank(b.recommendation))
+      .slice(0, opts.limit ?? 8)
+      .map((r) => ({
+        brand: r.name,
+        recommendation: r.recommendation,
+        model: r.evaluation.run.model,
+        mode: r.evaluation.run.mode,
+        question: r.evaluation.run.promptVersion.text,
+        quote: r.evidence,
+      }));
+  }
 }

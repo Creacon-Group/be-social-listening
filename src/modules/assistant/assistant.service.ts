@@ -6,11 +6,13 @@ import type { UserRole } from '../../generated/prisma/client.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
 import {
   FilterResolver,
+  periodOf,
   type MentionFilterDto,
   toWibYmd,
 } from '../mentions/mention-filter.js';
 import { MentionsService } from '../mentions/mentions.service.js';
 import { type AssistantDataPort, buildTools } from './assistant-tools.js';
+import { GeoAnalyticsService } from '../geo/geo-analytics.service.js';
 import { ChatCreditsService } from './chat-credits.service.js';
 import { ChatRepository } from './chat.repository.js';
 import { isCapacityError, ModelProvider } from './model.provider.js';
@@ -33,11 +35,26 @@ export class AssistantService {
     private readonly prisma: PrismaService,
     analytics: AnalyticsService,
     mentions: MentionsService,
+    geo: GeoAnalyticsService,
   ) {
     this.data = {
       overview: (projectId, f) => analytics.overview(projectId, f),
       competitors: (projectId, f, o) => analytics.competitors(projectId, f, o),
       sample: (projectId, f, o) => mentions.sample(projectId, f, o),
+      aiVisibility: async (projectId, f, o) => {
+        const period = periodOf(await filters.resolve(projectId, f));
+        const summary = await geo.summaryFor(projectId, period.to);
+        if (!summary)
+          return { available: false, message: 'No AI visibility run yet.' };
+        return {
+          available: true,
+          ...summary,
+          quotes: await geo.quotes(projectId, summary.run.id, {
+            brand: o.brand,
+            limit: 8,
+          }),
+        };
+      },
     };
   }
 

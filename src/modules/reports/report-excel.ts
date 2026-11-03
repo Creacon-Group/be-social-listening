@@ -167,6 +167,56 @@ export async function renderExcel(
     })),
   );
 
+  if (d.ai) {
+    sheet(
+      wb,
+      'AI visibility',
+      [
+        {
+          header: `Run ${d.ai.run.period}: model and mode`,
+          key: 'model',
+          width: 26,
+        },
+        { header: 'Brand', key: 'brand', width: 22 },
+        { header: 'Own brand', key: 'own', width: 10 },
+        { header: 'Valid answers', key: 'answers', width: 13 },
+        { header: 'Mention rate %', key: 'mentionRate', width: 15 },
+        {
+          header: 'Recommendation rate %',
+          key: 'recommendationRate',
+          width: 22,
+        },
+        { header: 'Avg position', key: 'avgPosition', width: 13 },
+        { header: 'AI share of voice %', key: 'sov', width: 18 },
+      ],
+      d.ai.groups.flatMap((g) =>
+        g.brands.map((b) => ({
+          model: g.label,
+          brand: b.name,
+          own: b.isTarget ? 'yes' : '',
+          answers: g.validResponses,
+          mentionRate: b.mentionRate,
+          recommendationRate: b.recommendationRate,
+          avgPosition: b.avgPosition,
+          sov: b.sov,
+        })),
+      ),
+    );
+    sheet(
+      wb,
+      'AI answers',
+      [
+        { header: 'Model', key: 'model', width: 26 },
+        { header: 'Mode', key: 'mode', width: 12 },
+        { header: 'Question', key: 'question', width: 50 },
+        { header: 'Brand', key: 'brand', width: 18 },
+        { header: 'Classification', key: 'recommendation', width: 16 },
+        { header: 'What the AI said', key: 'quote', width: 80 },
+      ],
+      d.aiQuotes,
+    );
+  }
+
   const ids = await matchingIds(prisma, f, 'latest', MAX_MENTION_ROWS);
   const found = await prisma.mention.findMany({
     where: idsWhere(ids),

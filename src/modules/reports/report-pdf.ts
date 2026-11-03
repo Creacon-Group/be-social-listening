@@ -304,6 +304,61 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     ]),
   );
 
+  if (d.ai) {
+    const rate = (v: number | null) =>
+      v === null ? '–' : `${v.toLocaleString('en-GB')}%`;
+    doc.addPage();
+    heading('AI visibility');
+    doc
+      .font('r')
+      .fontSize(9.5)
+      .fillColor(C.muted)
+      .text(
+        `How Gemini and GPT answer consumer questions about the category. Monthly AI benchmark run ${d.ai.run.period} (${d.ai.run.prompts} prompts); not affected by the report filters. Knowledge = the model's own knowledge, Search = with web search. A mention is not a recommendation. Own sites = answers citing the brand's own websites (Gemini Search only).`,
+        { width: W },
+      );
+    doc.moveDown(0.6);
+    table(
+      [
+        { label: 'Model', w: W * 0.22 },
+        { label: 'Answers', w: W * 0.1, align: 'right' },
+        { label: 'Mentioned', w: W * 0.14, align: 'right' },
+        { label: 'Recommended', w: W * 0.16, align: 'right' },
+        { label: 'Avg position', w: W * 0.14, align: 'right' },
+        { label: 'AI SoV', w: W * 0.11, align: 'right' },
+        { label: 'Own sites', w: W * 0.13, align: 'right' },
+      ],
+      d.ai.groups.map((g) => [
+        g.label,
+        nf(g.validResponses),
+        rate(g.mentionRate),
+        rate(g.recommendationRate),
+        g.avgPosition === null ? '–' : `#${g.avgPosition}`,
+        rate(g.sov),
+        g.citationsSupported ? rate(g.ownedCitationRate) : 'n/a',
+      ]),
+    );
+    heading('AI visibility by brand');
+    table(
+      [
+        { label: 'Model', w: W * 0.24 },
+        { label: 'Brand', w: W * 0.28 },
+        { label: 'Mentioned', w: W * 0.16, align: 'right' },
+        { label: 'Recommended', w: W * 0.16, align: 'right' },
+        { label: 'AI SoV', w: W * 0.16, align: 'right' },
+      ],
+      d.ai.groups.flatMap((g) =>
+        g.brands.map((b) => [
+          g.label,
+          `${b.name}${b.isTarget ? ' (own)' : ''}`,
+          rate(b.mentionRate),
+          rate(b.recommendationRate),
+          rate(b.sov),
+        ]),
+      ),
+    );
+  }
+
   // Footer on every page
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i++) {
