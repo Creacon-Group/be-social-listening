@@ -71,6 +71,48 @@ const domainsOf = (v: unknown): string[] =>
     : [];
 const stringsOf = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+const EN_WORDS = new Set([
+  'what',
+  'which',
+  'the',
+  'are',
+  'is',
+  'for',
+  'how',
+  'best',
+  'does',
+  'do',
+  'and',
+  'with',
+  'provide',
+  'offer',
+  'main',
+]);
+const ID_WORDS = new Set([
+  'apa',
+  'yang',
+  'mana',
+  'untuk',
+  'buat',
+  'dan',
+  'di',
+  'saya',
+  'paling',
+  'bagaimana',
+  'kenapa',
+  'atau',
+  'dengan',
+  'sebaiknya',
+]);
+
+/** Rough check used to drop English suggestions when the project asks for Bahasa Indonesia. */
+export function looksEnglish(text: string): boolean {
+  const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
+  const en = words.filter((w) => EN_WORDS.has(w)).length;
+  const id = words.filter((w) => ID_WORDS.has(w)).length;
+  return en >= 2 && en > id;
+}
+
 const owns = (domain: string, list: string[]) =>
   list.some((d) => domain === d || domain.endsWith(`.${d}`));
 
@@ -285,9 +327,14 @@ export class GeoService {
         .filter((b) => b.isOwn)
         .map((b) => b.name)
         .join(' / ');
-    const prompt = `Write benchmark questions that real consumers would ask an AI assistant.
+    const indonesian = s.profile.language !== 'en';
+    const languageRule = indonesian
+      ? `LANGUAGE: every "text" MUST be in Bahasa Indonesia, casual and natural, the way people in Indonesia type to an AI assistant (e.g. "Operator seluler apa yang paling stabil buat main game online?"). Do NOT write any question in English. Only the "category" values stay in English.`
+      : 'LANGUAGE: write every "text" in English.';
+    const prompt = `${languageRule}
+
+Write benchmark questions that real consumers would ask an AI assistant.
 Context: industry "${s.profile.industry ?? 'unknown'}", market "${s.profile.market ?? 'Indonesia'}", target brand "${target}", competitors: ${competitors.join(', ') || 'none'}.
-Language: ${s.profile.language === 'en' ? 'English' : 'Bahasa Indonesia, casual and natural'}.
 Write ${perCategory} questions for each category:
 - CATEGORY_DISCOVERY (asks for options in the category, no brand names)
 - BRAND_RECOMMENDATION (describes a need and asks what to choose, no brand names)
@@ -296,6 +343,7 @@ Write ${perCategory} questions for each category:
 - BRAND_AWARENESS (asks what is known about the target brand)
 - BRAND_REPUTATION (asks how the target brand is seen publicly)
 Do not state facts or claims about any brand. Do not lead the answer towards the target brand.
+${languageRule}
 Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|false}]}`;
     const c = await this.ai.complete(
       this.evaluatorKey,
@@ -318,8 +366,13 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
     }
     const cats = new Set(Object.values(GeoPromptCategory) as string[]);
     let created = 0;
+    let skipped = 0;
     for (const p of list) {
       if (!p.text?.trim() || !cats.has(p.category ?? '')) continue;
+      if (indonesian && looksEnglish(p.text)) {
+        skipped++;
+        continue;
+      }
       await this.createPrompt(projectId, userId, {
         text: p.text.slice(0, 1000),
         category: p.category as GeoPromptCategory,
@@ -329,7 +382,7 @@ Reply with JSON only: {"prompts":[{"category":"...","text":"...","branded":true|
       });
       created++;
     }
-    return { created };
+    return { created, skipped };
   }
 
   // ───────── Batches ─────────

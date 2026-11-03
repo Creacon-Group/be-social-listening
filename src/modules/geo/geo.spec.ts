@@ -10,6 +10,7 @@ import {
 } from './geo-evaluator.js';
 import { brandKpis, groupKpis, type ResponseRow } from './geo-metrics.js';
 import { citationDomain, classify, parseCompletion } from './sumopod.client.js';
+import { looksEnglish } from './geo.service.js';
 
 const IOH: Entity = {
   isTarget: true,
@@ -290,5 +291,28 @@ describe('SumoPod parsing', () => {
     expect(citationDomain('Some page', 'https://www.tri.co.id/paket')).toBe(
       'tri.co.id',
     );
+  });
+});
+
+describe('suggestion language check', () => {
+  it('flags English questions and keeps Indonesian ones', () => {
+    expect(
+      looksEnglish(
+        'What are the main cellular network operators providing mobile data plans in Indonesia?',
+      ),
+    ).toBe(true);
+    expect(
+      looksEnglish(
+        'Which telecommunications providers offer prepaid SIM cards with high-speed internet in Indonesia?',
+      ),
+    ).toBe(true);
+    expect(
+      looksEnglish(
+        'Operator seluler apa yang paling stabil buat main game online?',
+      ),
+    ).toBe(false);
+    expect(
+      looksEnglish('Bandingkan IM3 dan Telkomsel untuk streaming video.'),
+    ).toBe(false);
   });
 });
