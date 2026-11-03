@@ -89,24 +89,26 @@ export class CategoriesService {
   }
 
   /**
-   * Tag and category names Zanroo put on recent mentions, most used first, so admins pick
-   * exact names instead of typing them.
+   * Tag, category and keyword names Zanroo put on recent mentions, most used first, so admins
+   * pick exact names instead of typing them. Keywords are the Zanroo Keyword column (campaigns).
    */
   async zanrooTags(projectId: number) {
     const rows = await this.prisma.$queryRaw<
-      { tags: unknown; cats: unknown }[]
+      { tags: unknown; cats: unknown; kws: unknown }[]
     >`
-      SELECT m.tags AS tags, JSON_EXTRACT(m.extra, '$.categories') AS cats
+      SELECT m.tags AS tags, JSON_EXTRACT(m.extra, '$.categories') AS cats,
+             JSON_EXTRACT(m.extra, '$.keywords') AS kws
       FROM mentions m
       WHERE m.projectId = ${projectId}
-        AND (m.tags IS NOT NULL OR JSON_EXTRACT(m.extra, '$.categories') IS NOT NULL)
+        AND (m.tags IS NOT NULL OR JSON_EXTRACT(m.extra, '$.categories') IS NOT NULL
+             OR JSON_EXTRACT(m.extra, '$.keywords') IS NOT NULL)
       ORDER BY m.id DESC
       LIMIT ${SAMPLE_ROWS}`;
     const counts = new Map<
       string,
-      { name: string; kind: 'tag' | 'category'; count: number }
+      { name: string; kind: 'tag' | 'category' | 'keyword'; count: number }
     >();
-    const add = (v: unknown, kind: 'tag' | 'category') => {
+    const add = (v: unknown, kind: 'tag' | 'category' | 'keyword') => {
       const list = typeof v === 'string' ? (JSON.parse(v) as unknown) : v;
       for (const name of asStringList(list)) {
         const key = `${kind}:${name}`;
@@ -118,6 +120,7 @@ export class CategoriesService {
     for (const r of rows) {
       add(r.tags, 'tag');
       add(r.cats, 'category');
+      add(r.kws, 'keyword');
     }
     return {
       sampled: rows.length,
