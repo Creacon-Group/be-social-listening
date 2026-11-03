@@ -25,7 +25,10 @@ export function keywordPattern(keywords: string[]): string | null {
   return `(^|[^[:alnum:]_])(${keywords.map(escapeRegex).join('|')})($|[^[:alnum:]_])`;
 }
 
-/** SQL condition: the mention carries one of the Zanroo tags/categories, or its text has a keyword. */
+/**
+ * SQL condition: the mention carries one of the picked Zanroo names (Tag, Category Label or Keyword
+ * column), or its text has a keyword.
+ */
 export function ruleCondition(rule: {
   zanrooTags: string[];
   keywords: string[];
@@ -36,6 +39,10 @@ export function ruleCondition(rule: {
     parts.push(Prisma.sql`JSON_OVERLAPS(m.tags, CAST(${tags} AS JSON))`);
     parts.push(
       Prisma.sql`JSON_OVERLAPS(JSON_EXTRACT(m.extra, '$.categories'), CAST(${tags} AS JSON))`,
+    );
+    // Zanroo Keyword column (brand, product and campaign keywords such as "Activation Tri")
+    parts.push(
+      Prisma.sql`JSON_OVERLAPS(JSON_EXTRACT(m.extra, '$.keywords'), CAST(${tags} AS JSON))`,
     );
   }
   const pattern = keywordPattern(rule.keywords);
