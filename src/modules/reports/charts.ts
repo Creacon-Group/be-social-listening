@@ -13,6 +13,7 @@ export const C = {
   surface: '#f2f2f0',
   accent: '#3d55c4', // Creacon indigo: own brands, links
   accentSoft: '#e9ecfb',
+  accentLine: '#9eaae1', // accent at 50% on white: outline of the Beta chip
   pos: '#0f766e',
   neu: '#c9cdd3',
   neg: '#c2410c',
