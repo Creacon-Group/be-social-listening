@@ -47,14 +47,33 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
   const ensure = (h: number) => {
     if (doc.y + h > doc.page.height - 60) doc.addPage();
   };
-  const heading = (t: string) => {
+  /** Section title; `beta` adds the outlined accent "Beta" pill used in the web app. */
+  const heading = (t: string, beta = false) => {
     ensure(40);
     doc.moveDown(0.8);
-    doc
-      .font('s')
-      .fontSize(13)
-      .fillColor(C.ink)
-      .text(t, 40, doc.y, { width: W, characterSpacing: -0.15 });
+    const y = doc.y;
+    doc.font('s').fontSize(13).fillColor(C.ink);
+    const tw = doc.widthOfString(t, { characterSpacing: -0.15 });
+    doc.text(t, 40, y, { width: W, characterSpacing: -0.15 });
+    if (beta) {
+      const after = doc.y;
+      doc.font('s').fontSize(7.5);
+      const pw = doc.widthOfString('Beta') + 12;
+      const px = 40 + tw + 8;
+      const py = y + 1.5;
+      doc
+        .roundedRect(px, py, pw, 13, 6.5)
+        .lineWidth(0.75)
+        .strokeColor(C.accentLine)
+        .stroke();
+      doc.fillColor(C.accent).text('Beta', px, py + 3, {
+        width: pw,
+        align: 'center',
+        lineBreak: false,
+      });
+      doc.x = 40;
+      doc.y = after;
+    }
     doc.moveDown(0.35);
   };
   const chart = (img: Buffer, ratio: number) => {
@@ -308,7 +327,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
     const rate = (v: number | null) =>
       v === null ? '–' : `${v.toLocaleString('en-GB')}%`;
     doc.addPage();
-    heading('AI visibility');
+    heading('AI visibility', true);
     doc
       .font('r')
       .fontSize(9.5)
@@ -338,7 +357,7 @@ export function renderPdf(d: ReportData, charts: Charts): Promise<Buffer> {
         g.citationsSupported ? rate(g.ownedCitationRate) : 'n/a',
       ]),
     );
-    heading('AI visibility by brand');
+    heading('AI visibility by brand', true);
     table(
       [
         { label: 'Model', w: W * 0.24 },

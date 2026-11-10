@@ -90,7 +90,7 @@ export function renderEmailHtml(d: ReportData, dashboardUrl: string | null) {
   const rate = (v: number | null) =>
     v === null ? '–' : `${v.toLocaleString('en-GB')}%`;
   const aiBlock = d.ai
-    ? `<h2 style="margin:26px 0 10px;font-size:18px;font-weight:600;letter-spacing:-0.3px">AI visibility</h2>
+    ? `<h2 style="margin:26px 0 10px;font-size:18px;font-weight:600;letter-spacing:-0.3px">AI visibility <span style="display:inline-block;margin-left:6px;padding:3px 8px;border:1px solid ${C.accentLine};border-radius:999px;color:${C.accent};font-size:11px;font-weight:600;line-height:1;letter-spacing:0;vertical-align:middle">Beta</span></h2>
   <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:${C.muted}">How Gemini and GPT answer consumer questions, from the monthly AI benchmark run ${esc(d.ai.run.period ?? '')}. Not affected by the report filters.</p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;font-variant-numeric:tabular-nums">
     <tr style="color:${C.muted};font-size:12px"><td style="padding:8px;border-bottom:1px solid ${C.line}">Model</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">Mentioned</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">Recommended</td><td align="right" style="padding:8px;border-bottom:1px solid ${C.line}">AI SoV</td></tr>

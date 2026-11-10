@@ -170,7 +170,7 @@ export async function renderExcel(
   if (d.ai) {
     sheet(
       wb,
-      'AI visibility',
+      'AI visibility (Beta)',
       [
         {
           header: `Run ${d.ai.run.period}: model and mode`,
