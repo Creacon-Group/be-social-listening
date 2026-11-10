@@ -20,5 +20,5 @@ Rules:
 \`\`\`chart
 {"type":"bar","title":"Share of voice by brand","xKey":"brand","series":[{"key":"sov","label":"SOV (%)"}],"data":[{"brand":"Indosat","sov":34.2},{"brand":"Telkomsel","sov":41.0}]}
 \`\`\`
-type is "bar" (compare brands or channels), "line" (trend over days; use compare_brands with includeTrend=true) or "pie" (shares of one total, one series only). Every value in data must be copied from a tool result; numbers are plain JSON numbers without % or thousands separators. Use at most 8 series and 60 rows. Write one or two sentences about what the chart shows next to it. Never say you cannot make charts.
+type is "bar" (compare brands or channels), "line" (trend over time; call brand_trend and use its rows as data with xKey "day" and one series per brand name) or "pie" (shares of one total, one series only). Every value in data must be copied from a tool result; numbers are plain JSON numbers without % or thousands separators. Use at most 8 series and 60 rows. Write one or two sentences about what the chart shows next to it. Never say you cannot make charts.
 Answer in English, concisely: about 350 words at most (the chart block does not count), at most 3 recommendations, each backed by a number or an example mention from the tools.`;

@@ -63,7 +63,39 @@ export interface ToolContext {
   brands: { id: number; name: string }[];
 }
 
-const strip = <T extends object>(o: T) =>
+type TrendMetric = 'total' | 'engagements' | 'reach';
+export interface CompetitorsResult {
+  period: unknown;
+  interval: string;
+  buckets: string[];
+  brands: { brandId: number; name: string; isOwn: boolean }[];
+  trend: ({ day: string; brandId: number } & Record<TrendMetric, number>)[];
+}
+
+/** Long trend rows (day × brandId) → one row per bucket with a column per brand name. */
+export function pivotTrend(r: CompetitorsResult, metric: TrendMetric) {
+  const names = new Map(r.brands.map((b) => [b.brandId, b.name]));
+  const rows = new Map<string, Record<string, string | number>>(
+    r.buckets.map((d) => [
+      d,
+      { day: d, ...Object.fromEntries(r.brands.map((b) => [b.name, 0])) },
+    ]),
+  );
+  for (const t of r.trend) {
+    const name = names.get(t.brandId);
+    const row = rows.get(t.day);
+    if (name && row) row[name] = t[metric];
+  }
+  return {
+    period: r.period,
+    interval: r.interval,
+    metric,
+    brands: r.brands.map((b) => ({ name: b.name, isOwn: b.isOwn })),
+    rows: [...rows.values()],
+  };
+}
+
+const strip =<T extends object>(o: T) =>
   Object.fromEntries(
     Object.entries(o).filter(([, v]) => v !== undefined),
   ) as Partial<T>;
@@ -106,7 +138,7 @@ export function buildTools(ctx: ToolContext, data: AssistantDataPort) {
     }),
     compare_brands: tool({
       description:
-        'Compare brands: volume, SOV, net sentiment, ratio to own brands, and the own-brand total (unique mentions). includeTrend=true adds the daily trend per brand.',
+        'Compare brands: volume, SOV, net sentiment, ratio to own brands, and the own-brand total (unique mentions). For trends over time use brand_trend instead.',
       inputSchema: z.object({
         ...filterArgs,
         includeTrend: z.boolean().optional(),
@@ -117,6 +149,21 @@ export function buildTools(ctx: ToolContext, data: AssistantDataPort) {
             includeTrend: includeTrend ?? false,
           }),
         ),
+    }),
+    brand_trend: tool({
+      description:
+        'Mentions (or engagement/reach) per day for each brand, as ready-to-chart rows: one row per day with one column per brand name. Days without mentions are 0. Use this for trendlines and charts over time.',
+      inputSchema: z.object({
+        ...filterArgs,
+        metric: z.enum(['total', 'engagements', 'reach']).optional(),
+      }),
+      execute: ({ metric, ...args }) =>
+        safe(async () => {
+          const r = (await data.competitors(ctx.projectId, merged(args), {
+            includeTrend: true,
+          })) as CompetitorsResult;
+          return pivotTrend(r, metric ?? 'total');
+        }),
     }),
     get_ai_visibility: tool({
       description:
