@@ -32,6 +32,53 @@ export interface GeoModelInfo {
   capabilities: (typeof CAPABILITIES)[GeoModelKey];
 }
 
+/** Spend vs. budget of the LiteLLM user (or key) behind a model's API key. Amounts in USD. */
+export interface GeoModelBudget {
+  key: GeoModelKey;
+  label: string;
+  configured: boolean;
+  /** LiteLLM user id; two models with the same id share one budget. */
+  ownerId: string | null;
+  spend: number | null;
+  maxBudget: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+  error: string | null;
+}
+
+type BudgetInfo = {
+  user_id?: string;
+  key_alias?: string;
+  spend?: number;
+  max_budget?: number | null;
+  budget_reset_at?: string | null;
+};
+
+/** Read a LiteLLM /user/info or /key/info body (flat, or nested in user_info / info). */
+export function parseBudget(
+  body: {
+    user_info?: BudgetInfo;
+    info?: BudgetInfo;
+  } & BudgetInfo,
+): Pick<
+  GeoModelBudget,
+  'ownerId' | 'spend' | 'maxBudget' | 'remaining' | 'resetAt'
+> {
+  const i = body.user_info ?? body.info ?? body;
+  const spend = typeof i.spend === 'number' ? i.spend : null;
+  const maxBudget = typeof i.max_budget === 'number' ? i.max_budget : null;
+  return {
+    ownerId: i.user_id ?? body.user_id ?? null,
+    spend,
+    maxBudget,
+    remaining:
+      spend !== null && maxBudget !== null
+        ? Math.max(0, Math.round((maxBudget - spend) * 100) / 100)
+        : null,
+    resetAt: i.budget_reset_at ?? null,
+  };
+}
+
 export interface Citation {
   domain: string;
   url: string;
@@ -61,6 +108,7 @@ export class ProviderError extends Error {
       | 'invalid_model'
       | 'auth'
       | 'bad_request'
+      | 'budget_exceeded'
       | 'malformed'
       | 'not_configured',
     message: string,
@@ -147,6 +195,14 @@ export function parseCompletion(
 export function classify(status: number, body: ChatResponse): ProviderError {
   const msg = (body.error?.message ?? `HTTP ${status}`).slice(0, 300);
   const type = body.error?.type ?? '';
+  // Gateway/provider spend cap (LiteLLM "ExceededBudget ... over budget", OpenAI insufficient_quota).
+  // Not retryable: every further call fails until an admin raises the budget.
+  if (
+    /ExceededBudget|over budget|budget_exceeded|insufficient_quota|exceeded your current quota/i.test(
+      `${type} ${body.error?.code ?? ''} ${msg}`,
+    )
+  )
+    return new ProviderError('budget_exceeded', msg, false, body);
   if (status === 429) return new ProviderError('rate_limit', msg, true, body);
   if (status >= 500)
     return new ProviderError('provider_error', msg, true, body);
@@ -205,6 +261,58 @@ export class SumoPodClient {
 
   idOf(key: GeoModelKey) {
     return this.ids[key];
+  }
+
+  /**
+   * Remaining budget per model, from SumoPod's /v2/user/info (LiteLLM user behind each key).
+   * Cached for a minute; never returns or logs the keys.
+   */
+  async budgets(): Promise<GeoModelBudget[]> {
+    if (this.budgetCache && Date.now() - this.budgetCache.at < 60_000)
+      return this.budgetCache.data;
+    const data = await Promise.all(
+      (['gemini', 'gpt'] as const).map((key) => this.budget(key)),
+    );
+    this.budgetCache = { at: Date.now(), data };
+    return data;
+  }
+
+  private budgetCache?: { at: number; data: GeoModelBudget[] };
+
+  private async budget(key: GeoModelKey): Promise<GeoModelBudget> {
+    const base = {
+      key,
+      label: LABEL[key],
+      configured: !!this.keys[key],
+      ownerId: null,
+      spend: null,
+      maxBudget: null,
+      remaining: null,
+      resetAt: null,
+      error: null,
+    };
+    const apiKey = this.keys[key];
+    if (!apiKey) return { ...base, error: 'No API key configured' };
+    // SumoPod serves user info at /v2/user/info on the gateway root (chat is under /v1).
+    const root = this.baseUrl.replace(/\/v1$/, '');
+    const get = async (path: string) => {
+      const res = await fetch(`${root}${path}`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} on ${path}`);
+      return parseBudget(
+        (await res.json()) as Parameters<typeof parseBudget>[0],
+      );
+    };
+    try {
+      return { ...base, ...(await get('/v2/user/info')) };
+    } catch (e) {
+      this.log.warn(
+        `Budget lookup for ${LABEL[key]} failed: ${(e as Error).message}`,
+      );
+      return { ...base, error: 'Could not read budget from the AI gateway' };
+    }
   }
 
   /** One completion with retries on transient errors (timeout, network, 429, 5xx, empty answer). */

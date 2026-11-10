@@ -9,7 +9,12 @@ import {
   positions,
 } from './geo-evaluator.js';
 import { brandKpis, groupKpis, type ResponseRow } from './geo-metrics.js';
-import { citationDomain, classify, parseCompletion } from './sumopod.client.js';
+import {
+  citationDomain,
+  classify,
+  parseBudget,
+  parseCompletion,
+} from './sumopod.client.js';
 import { looksEnglish, looksIndonesian } from './geo.service.js';
 
 const IOH: Entity = {
@@ -285,6 +290,43 @@ describe('SumoPod parsing', () => {
       retryable: true,
     });
     expect(classify(401, {})).toMatchObject({ type: 'auth', retryable: false });
+    expect(
+      classify(400, {
+        error: {
+          message:
+            'ExceededBudget: User=abc over budget. Spend=4.7, Budget=4.7',
+        },
+      }),
+    ).toMatchObject({ type: 'budget_exceeded', retryable: false });
+    expect(
+      classify(429, {
+        error: { type: 'insufficient_quota', message: 'quota' },
+      }),
+    ).toMatchObject({ type: 'budget_exceeded', retryable: false });
+  });
+
+  it('reads the remaining LiteLLM budget', () => {
+    expect(
+      parseBudget({
+        user_id: 'u1',
+        spend: 4.833012559999998,
+        max_budget: 10.3,
+        budget_reset_at: null,
+      }),
+    ).toEqual({
+      ownerId: 'u1',
+      spend: 4.833012559999998,
+      maxBudget: 10.3,
+      remaining: 5.47,
+      resetAt: null,
+    });
+    expect(
+      parseBudget({ user_id: 'u1', user_info: { spend: 12, max_budget: 10 } }),
+    ).toMatchObject({ ownerId: 'u1', remaining: 0 });
+    expect(parseBudget({ info: { spend: 1 } })).toMatchObject({
+      maxBudget: null,
+      remaining: null,
+    });
   });
 
   it('falls back to the URL host for the domain', () => {

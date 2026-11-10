@@ -47,6 +47,7 @@ import {
 } from '../../generated/prisma/enums.js';
 import { GeoAnalyticsService } from './geo-analytics.service.js';
 import { GeoService } from './geo.service.js';
+import { SumoPodClient } from './sumopod.client.js';
 
 class ProfileDto {
   @IsOptional() @IsString() @MaxLength(120) targetName?: string;
@@ -138,7 +139,15 @@ export class GeoController {
   constructor(
     private readonly geo: GeoService,
     private readonly analytics: GeoAnalyticsService,
+    private readonly sumopod: SumoPodClient,
   ) {}
+
+  /** Remaining AI gateway budget per model. Superadmin only (spend is account-wide, not per project). */
+  @Get('budget')
+  @Roles('SUPERADMIN')
+  budget() {
+    return this.sumopod.budgets();
+  }
 
   @Get('settings')
   settings(@Param('projectId', ParseIntPipe) projectId: number) {
