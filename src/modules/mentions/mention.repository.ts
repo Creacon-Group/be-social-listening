@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
+import { derivedSet } from './mention-sql.js';
 import type {
   IngestionContext,
   ResolvedMention,
@@ -124,6 +125,10 @@ export class PrismaMentionWriter implements MentionWriter {
     // Outside the transaction: rows that already existed keep their data but get fields added
     // in later versions (preview, gender, region), so re-uploading a file backfills them.
     await this.backfill(ctx.projectId, existing);
+    await this.syncDerived(
+      ctx.projectId,
+      unique.map((i) => i.mention.externalId),
+    );
 
     return { inserted: count, skipped: items.length - count };
   }
@@ -155,6 +160,15 @@ export class PrismaMentionWriter implements MentionWriter {
       where: { projectId, externalId: { in: externalIds } },
     });
     return count;
+  }
+
+  /** Fill the derived columns (owned, tier, demographics, reactions) of these rows from tags and extra. */
+  private async syncDerived(projectId: number, externalIds: string[]) {
+    for (let i = 0; i < externalIds.length; i += 500) {
+      await this.prisma.$executeRaw`
+        UPDATE mentions m SET ${derivedSet()}
+        WHERE m.projectId = ${projectId} AND m.externalId IN (${Prisma.join(externalIds.slice(i, i + 500))})`;
+    }
   }
 
   /**

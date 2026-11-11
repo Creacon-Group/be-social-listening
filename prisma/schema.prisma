@@ -185,6 +185,22 @@ model Mention {
   tags     Json? // Zanroo Tag column (issues/topics)
   extra    Json? // Where, Country, Types, category labels set to 1
 
+  // Derived from tags / extra / account_profiles so dashboard aggregates read plain columns
+  // (see mention-sql.ts derivedSet). Written on ingestion and when an account is re-tagged.
+  isOwned        Boolean @default(false) // Brand Voice tag or account tagged Official
+  isPaid         Boolean @default(false) // author's account tagged paid
+  tierRank       Int     @default(0) @db.TinyInt // highest Zanroo influencer tier, 0 = none
+  gender         String? @db.VarChar(50)
+  province       String? @db.VarChar(50) // first two parts of the HASC code, e.g. ID.JK
+  country        String? @db.VarChar(100)
+  bookmarks      Int     @default(0)
+  reactLove      Int     @default(0)
+  reactWow       Int     @default(0)
+  reactHaha      Int     @default(0)
+  reactSad       Int     @default(0)
+  reactAngry     Int     @default(0)
+  reactFavorites Int     @default(0)
+
   project    Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   batch      IngestionBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
   brands     MentionBrand[]
@@ -195,6 +211,9 @@ model Mention {
   @@index([projectId, channel, publishedAt])
   @@index([projectId, sentimentLabel, publishedAt])
   @@index([batchId])
+  // Covering index for the dashboard totals: no table reads for overview, trend, channels.
+  @@index([projectId, publishedAt, channel, sentimentLabel, isOwned, isPaid, engagements, reach, views], map: "mentions_agg_idx")
+  @@index([projectId, authorHandle], map: "mentions_author_idx")
   @@map("mentions")
 }
 

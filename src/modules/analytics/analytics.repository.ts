@@ -6,10 +6,10 @@ import {
   WIB_OFFSET_H,
 } from '../mentions/mention-filter.js';
 import {
-  BRAND_VOICE_TAG,
   brandExistsSql,
   mentionSqlWhere,
   ownedSql,
+  TIERS,
 } from '../mentions/mention-sql.js';
 
 export interface CountsRow {
@@ -68,38 +68,18 @@ export const bucketSql = (i: Interval): Prisma.Sql => {
   }
 };
 
-/** Zanroo influencer tiers (Tag column), smallest to largest. */
-export const TIERS = [
-  'Nano Influencer',
-  'Micro Influencer',
-  'Mid Tier Influencer',
-  'Macro Influencer',
-  'Mega Influencer',
-] as const;
-
-const tagged = (tag: string) =>
-  Prisma.sql`COALESCE(JSON_CONTAINS(m.tags, JSON_QUOTE(${tag})), 0) = 1`;
-
-/** Highest tier rank (1..5) found on the author's mentions, 0 = none. */
-const TIER_RANK = Prisma.sql`MAX(CASE ${Prisma.join(
-  [...TIERS]
-    .map((t, i) => Prisma.sql`WHEN ${tagged(t)} THEN ${i + 1}`)
-    .reverse(),
-  ' ',
-)} ELSE 0 END)`;
+export { TIERS };
 
 /**
  * Account type: an analyst's choice wins; otherwise Brand Voice tag = OFFICIAL, news/blog = MEDIA,
- * a Zanroo influencer tier = KOL, anyone else = OTHER.
+ * a Zanroo influencer tier = KOL, anyone else = OTHER. (m.isOwned also covers accounts marked
+ * Official, which the analyst's choice already returns first.)
  */
 const ACCOUNT_TYPE = Prisma.sql`COALESCE(MAX(ap.accountType), CASE
-  WHEN MAX(${tagged(BRAND_VOICE_TAG)}) = 1 THEN 'OFFICIAL'
+  WHEN MAX(m.isOwned) = 1 THEN 'OFFICIAL'
   WHEN m.channel IN ('ONLINE_NEWS', 'BLOG') THEN 'MEDIA'
-  WHEN ${TIER_RANK} > 0 THEN 'KOL'
+  WHEN MAX(m.tierRank) > 0 THEN 'KOL'
   ELSE 'OTHER' END)`;
-
-const json = (path: string) =>
-  Prisma.sql`CAST(COALESCE(JSON_EXTRACT(m.extra, ${path}), 0) AS SIGNED)`;
 
 /** Read side: aggregate SQL kept in one place. Every query is scoped by projectId and the resolved filter. */
 @Injectable()
@@ -186,13 +166,13 @@ export class AnalyticsRepository {
              CAST(SUM(m.comments) AS SIGNED) AS comments,
              CAST(SUM(m.shares) AS SIGNED) AS shares,
              CAST(SUM(m.views) AS SIGNED) AS views,
-             CAST(SUM(${json('$.preview.bookmarks')}) AS SIGNED) AS bookmarks,
-             CAST(SUM(${json('$.reactions.love')}) AS SIGNED) AS love,
-             CAST(SUM(${json('$.reactions.wow')}) AS SIGNED) AS wow,
-             CAST(SUM(${json('$.reactions.haha')}) AS SIGNED) AS haha,
-             CAST(SUM(${json('$.reactions.sad')}) AS SIGNED) AS sad,
-             CAST(SUM(${json('$.reactions.angry')}) AS SIGNED) AS angry,
-             CAST(SUM(${json('$.reactions.favorites')}) AS SIGNED) AS favorites,
+             CAST(SUM(m.bookmarks) AS SIGNED) AS bookmarks,
+             CAST(SUM(m.reactLove) AS SIGNED) AS love,
+             CAST(SUM(m.reactWow) AS SIGNED) AS wow,
+             CAST(SUM(m.reactHaha) AS SIGNED) AS haha,
+             CAST(SUM(m.reactSad) AS SIGNED) AS sad,
+             CAST(SUM(m.reactAngry) AS SIGNED) AS angry,
+             CAST(SUM(m.reactFavorites) AS SIGNED) AS favorites,
              CAST(SUM(${ownedSql()}) AS SIGNED) AS ownedTotal,
              CAST(SUM(CASE WHEN ${ownedSql()} THEN m.engagements ELSE 0 END) AS SIGNED) AS ownedEngagements,
              CAST(SUM(CASE WHEN ${ownedSql()} THEN m.reach ELSE 0 END) AS SIGNED) AS ownedReach
@@ -369,7 +349,7 @@ export class AnalyticsRepository {
              CAST(SUM(m.engagements) AS SIGNED) AS engagements,
              ${ACCOUNT_TYPE} AS accountType,
              MAX(ap.accountType) AS manualType,
-             ${TIER_RANK} AS tierRank,
+             MAX(m.tierRank) AS tierRank,
              MAX(ap.isPaid) AS isPaid
       FROM mentions m
       LEFT JOIN account_profiles ap
@@ -412,10 +392,10 @@ export class AnalyticsRepository {
   demographic(f: ResolvedFilter, dim: 'gender' | 'province' | 'country') {
     const expr =
       dim === 'gender'
-        ? Prisma.sql`JSON_UNQUOTE(JSON_EXTRACT(m.extra, '$.gender'))`
+        ? Prisma.sql`m.gender`
         : dim === 'province'
-          ? Prisma.sql`SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(m.extra, '$.hasc')), '.', 2)`
-          : Prisma.sql`JSON_UNQUOTE(JSON_EXTRACT(m.extra, '$.country'))`;
+          ? Prisma.sql`m.province`
+          : Prisma.sql`m.country`;
     return this.prisma.$queryRaw<
       (CountsRow & { value: string | null; reach: unknown })[]
     >`

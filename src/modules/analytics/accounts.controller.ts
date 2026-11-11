@@ -23,7 +23,9 @@ import {
 import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AccountType, Channel } from '../../generated/prisma/enums.js';
+import { Prisma } from '../../generated/prisma/client.js';
 import { FilterResolver } from '../mentions/mention-filter.js';
+import { ownedPaidSet } from '../mentions/mention-sql.js';
 
 class AccountRef {
   @IsEnum(Channel) channel!: Channel;
@@ -117,6 +119,15 @@ export class AccountsController {
         }),
       ),
     );
+    // Owned / paid are stored on each mention; recompute them for these authors' posts.
+    for (let i = 0; i < unique.length; i += 100) {
+      const who = unique
+        .slice(i, i + 100)
+        .map((a) => Prisma.sql`(m.channel = ${a.channel} AND m.authorHandle = ${a.handle})`);
+      await this.prisma.$executeRaw`
+        UPDATE mentions m SET ${ownedPaidSet()}
+        WHERE m.projectId = ${projectId} AND (${Prisma.join(who, ' OR ')})`;
+    }
     return { updated: unique.length };
   }
 

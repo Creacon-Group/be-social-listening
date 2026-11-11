@@ -23,6 +23,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:backfill-derived": "tsx prisma/backfill-derived.ts",
     "openapi": "nest build && node dist/main.js --export-openapi",
     "postinstall": "prisma generate"
   },

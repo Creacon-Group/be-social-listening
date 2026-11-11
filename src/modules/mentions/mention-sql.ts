@@ -10,11 +10,59 @@ const escapeLike = (s: string) => s.replace(/[!%_]/g, (c) => `!${c}`);
 const profileExists = (cond: Prisma.Sql) =>
   Prisma.sql`EXISTS (SELECT 1 FROM account_profiles ap WHERE ap.projectId = m.projectId AND ap.channel = m.channel AND ap.handle = m.authorHandle AND ${cond})`;
 
-/** Owned media: posts tagged Brand Voice by Zanroo, or by an account an analyst marked Official. Never NULL. */
-export const ownedSql = () =>
-  Prisma.sql`(COALESCE(JSON_CONTAINS(m.tags, JSON_QUOTE(${BRAND_VOICE_TAG})), 0) = 1 OR ${profileExists(Prisma.sql`ap.accountType = 'OFFICIAL'`)})`;
+/** Zanroo influencer tiers (Tag column), smallest to largest. */
+export const TIERS = [
+  'Nano Influencer',
+  'Micro Influencer',
+  'Mid Tier Influencer',
+  'Macro Influencer',
+  'Mega Influencer',
+] as const;
 
-export const paidSql = () => profileExists(Prisma.sql`ap.isPaid = 1`);
+const tagged = (tag: string) =>
+  Prisma.sql`COALESCE(JSON_CONTAINS(m.tags, JSON_QUOTE(${tag})), 0) = 1`;
+
+/** Owned media, from the source: Brand Voice tag, or an account an analyst marked Official. */
+const ownedSource = () =>
+  Prisma.sql`(${tagged(BRAND_VOICE_TAG)} OR ${profileExists(Prisma.sql`ap.accountType = 'OFFICIAL'`)})`;
+const paidSource = () => profileExists(Prisma.sql`ap.isPaid = 1`);
+
+/** Whole-number JSON value at `path` in m.extra, 0 when missing or not a number. */
+const jsonInt = (path: string) =>
+  Prisma.sql`CASE WHEN JSON_TYPE(JSON_EXTRACT(m.extra, ${path})) IN ('INTEGER', 'UNSIGNED INTEGER', 'DOUBLE') THEN CAST(JSON_EXTRACT(m.extra, ${path}) AS SIGNED) ELSE 0 END`;
+const jsonText = (path: string, max: number) =>
+  Prisma.sql`LEFT(JSON_UNQUOTE(JSON_EXTRACT(m.extra, ${path})), ${max})`;
+
+/** Owned / paid columns, recomputed when an analyst re-tags an account. */
+export const ownedPaidSet = () =>
+  Prisma.sql`m.isOwned = ${ownedSource()}, m.isPaid = ${paidSource()}`;
+
+/**
+ * SET list for `UPDATE mentions m`: every derived column from tags, extra and account_profiles.
+ * The single definition used by ingestion, account tagging and the backfill script.
+ */
+export const derivedSet = () => Prisma.sql`${ownedPaidSet()},
+  m.tierRank = CASE ${Prisma.join(
+    [...TIERS]
+      .map((t, i) => Prisma.sql`WHEN ${tagged(t)} THEN ${i + 1}`)
+      .reverse(),
+    ' ',
+  )} ELSE 0 END,
+  m.gender = ${jsonText('$.gender', 50)},
+  m.province = LEFT(SUBSTRING_INDEX(JSON_UNQUOTE(JSON_EXTRACT(m.extra, '$.hasc')), '.', 2), 50),
+  m.country = ${jsonText('$.country', 100)},
+  m.bookmarks = ${jsonInt('$.preview.bookmarks')},
+  m.reactLove = ${jsonInt('$.reactions.love')},
+  m.reactWow = ${jsonInt('$.reactions.wow')},
+  m.reactHaha = ${jsonInt('$.reactions.haha')},
+  m.reactSad = ${jsonInt('$.reactions.sad')},
+  m.reactAngry = ${jsonInt('$.reactions.angry')},
+  m.reactFavorites = ${jsonInt('$.reactions.favorites')}`;
+
+/** Owned media: posts tagged Brand Voice by Zanroo, or by an account an analyst marked Official. */
+export const ownedSql = () => Prisma.sql`m.isOwned = 1`;
+
+export const paidSql = () => Prisma.sql`m.isPaid = 1`;
 
 /**
  * WHERE clause on `mentions m` for every filter except brands (queries that join mention_brands
