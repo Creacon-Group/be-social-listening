@@ -1,5 +1,10 @@
 import type { SourceRecord } from '../../domain/normalized-mention.js';
 import { parseChannel } from '../excel/excel-parsers.js';
+import {
+  type CleanedMessage,
+  cleanedMessageToRecord,
+  isCleanedMessage,
+} from './cleaned-message.js';
 
 /**
  * One message as Zanroo Listening sends it: in the webhook body and in the
@@ -70,6 +75,9 @@ const POST_TYPE: Record<string, string> = { Added: 'Posted' };
 const handleOf = (id?: string) => id?.replace(/^[a-z]+_/, '') || undefined;
 
 export function zanrooMessageToRecord(m: ZanrooMessage): SourceRecord {
+  // The CIMB forwarder sends the flattened ("cleaned") shape instead of the raw message.
+  if (m && typeof m === 'object' && isCleanedMessage(m))
+    return cleanedMessageToRecord(m as CleanedMessage);
   const externalId = m.mid || m.id;
   const ref = externalId ?? 'message';
   try {
