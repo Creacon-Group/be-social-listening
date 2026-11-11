@@ -107,23 +107,69 @@ export const toWibYmd = (d: Date) =>
   new Date(d.getTime() + WIB_OFFSET_H * 3_600_000).toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY_MS);
 
+/** How long the latest data day and project settings are reused per server instance. */
+const CACHE_MS = 30_000;
+
 @Injectable()
 export class FilterResolver {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Every dashboard call resolves the filter first; these two lookups used to run one after the
+  // other before the real query. Short-lived per-instance cache, so an upload shows within 30 s.
+  private readonly asOfCache = new Map<
+    number,
+    { at: number; value: Promise<Date | null> }
+  >();
+  private readonly nssCache = new Map<
+    number,
+    { at: number; value: Promise<boolean> }
+  >();
+
+  private cached<T>(
+    cache: Map<number, { at: number; value: Promise<T> }>,
+    projectId: number,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const hit = cache.get(projectId);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+    const value = load();
+    cache.set(projectId, { at: Date.now(), value });
+    value.catch(() => cache.delete(projectId)); // never keep a failed lookup
+    return value;
+  }
+
+  /** Drop cached lookups for a project, e.g. after its settings change. */
+  invalidate(projectId: number) {
+    this.asOfCache.delete(projectId);
+    this.nssCache.delete(projectId);
+  }
+
   /** Latest mention date in the project: the anchor for Today / 7 / 30 day presets (data arrives in monthly batches). */
-  async dataAsOf(projectId: number): Promise<Date | null> {
-    const r = await this.prisma.mention.aggregate({
-      where: { projectId },
-      _max: { publishedAt: true },
+  dataAsOf(projectId: number): Promise<Date | null> {
+    return this.cached(this.asOfCache, projectId, async () => {
+      const r = await this.prisma.mention.aggregate({
+        where: { projectId },
+        _max: { publishedAt: true },
+      });
+      return r._max.publishedAt;
     });
-    return r._max.publishedAt;
+  }
+
+  private nssIncludeNeutral(projectId: number): Promise<boolean> {
+    return this.cached(this.nssCache, projectId, async () => {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { nssIncludeNeutral: true },
+      });
+      return project?.nssIncludeNeutral ?? true;
+    });
   }
 
   async resolve(
     projectId: number,
     dto: MentionFilterDto,
   ): Promise<ResolvedFilter> {
+    const nss = this.nssIncludeNeutral(projectId); // in parallel with the date lookup
     let from: Date;
     let to: Date;
     if (dto.range === 'custom' && dto.from && dto.to) {
@@ -146,10 +192,7 @@ export class FilterResolver {
       from = addDays(to, -days);
     }
     const nonEmpty = <T>(a?: T[]) => (a?.length ? a : undefined);
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-      select: { nssIncludeNeutral: true },
-    });
+    const nssIncludeNeutral = await nss;
     return {
       projectId,
       from,
@@ -162,7 +205,7 @@ export class FilterResolver {
       voice: dto.voice,
       keywords: nonEmpty(dto.keywords),
       paid: dto.paid,
-      nssIncludeNeutral: project?.nssIncludeNeutral ?? true,
+      nssIncludeNeutral,
     };
   }
 }

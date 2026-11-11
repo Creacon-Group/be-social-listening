@@ -134,6 +134,51 @@ export class AnalyticsRepository {
     return r;
   }
 
+  /**
+   * Totals for the period and the one before it (same filters, `prev.to` = `f.from`) in one scan,
+   * instead of two queries over the same index range.
+   */
+  async overviewWithPrevious(
+    f: ResolvedFilter,
+    prev: ResolvedFilter,
+  ): Promise<{ now: OverviewRow; prev: OverviewRow }> {
+    const cur = Prisma.sql`m.publishedAt >= ${f.from}`;
+    const [r] = await this.prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT CAST(SUM(${cur}) AS SIGNED) AS total,
+             CAST(SUM(${cur} AND m.sentimentLabel = 'POSITIVE') AS SIGNED) AS positive,
+             CAST(SUM(${cur} AND m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS neutral,
+             CAST(SUM(${cur} AND m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS negative,
+             CAST(SUM(CASE WHEN ${cur} THEN m.engagements ELSE 0 END) AS SIGNED) AS engagements,
+             CAST(SUM(CASE WHEN ${cur} THEN m.reach ELSE 0 END) AS SIGNED) AS reach,
+             CAST(SUM(NOT ${cur}) AS SIGNED) AS pTotal,
+             CAST(SUM(NOT ${cur} AND m.sentimentLabel = 'POSITIVE') AS SIGNED) AS pPositive,
+             CAST(SUM(NOT ${cur} AND m.sentimentLabel = 'NEUTRAL') AS SIGNED) AS pNeutral,
+             CAST(SUM(NOT ${cur} AND m.sentimentLabel = 'NEGATIVE') AS SIGNED) AS pNegative,
+             CAST(SUM(CASE WHEN ${cur} THEN 0 ELSE m.engagements END) AS SIGNED) AS pEngagements,
+             CAST(SUM(CASE WHEN ${cur} THEN 0 ELSE m.reach END) AS SIGNED) AS pReach
+      FROM mentions m
+      WHERE ${this.where({ ...f, from: prev.from })} ${this.brandExists(f)}`;
+    const v = (k: string) => (r?.[k] ?? 0) as bigint | number;
+    return {
+      now: {
+        total: v('total'),
+        positive: v('positive'),
+        neutral: v('neutral'),
+        negative: v('negative'),
+        engagements: v('engagements'),
+        reach: v('reach'),
+      },
+      prev: {
+        total: v('pTotal'),
+        positive: v('pPositive'),
+        neutral: v('pNeutral'),
+        negative: v('pNegative'),
+        engagements: v('pEngagements'),
+        reach: v('pReach'),
+      },
+    };
+  }
+
   /** What engagement is made of, and owned (brand accounts) vs earned. */
   async breakdown(f: ResolvedFilter) {
     const [r] = await this.prisma.$queryRaw<Record<string, unknown>[]>`
@@ -260,7 +305,7 @@ export class AnalyticsRepository {
       FROM mentions m
       WHERE ${this.where(f)} ${this.brandExists(f)}
       GROUP BY m.channel
-      ORDER BY total DESC`;
+      ORDER BY total DESC, m.channel`;
   }
 
   /** Totals per time bucket (WIB): mentions, reach, engagement and sentiment. */

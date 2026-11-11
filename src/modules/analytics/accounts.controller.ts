@@ -23,6 +23,7 @@ import {
 import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AccountType, Channel } from '../../generated/prisma/enums.js';
+import { FilterResolver } from '../mentions/mention-filter.js';
 
 class AccountRef {
   @IsEnum(Channel) channel!: Channel;
@@ -59,7 +60,10 @@ const cleanHandle = (h: string) => h.trim().replace(/^@/, '');
 @ApiTags('accounts')
 @Controller('projects/:projectId')
 export class AccountsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly filters: FilterResolver,
+  ) {}
 
   /** Accounts an analyst has classified by hand. */
   @Get('accounts')
@@ -126,14 +130,16 @@ export class AccountsController {
 
   @Put('settings')
   @Roles('ADMIN')
-  updateSettings(
+  async updateSettings(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: ProjectSettingsDto,
   ) {
-    return this.prisma.project.update({
+    const saved = await this.prisma.project.update({
       where: { id: projectId },
       data: dto,
       select: { nssIncludeNeutral: true, showNss: true },
     });
+    this.filters.invalidate(projectId);
+    return saved;
   }
 }

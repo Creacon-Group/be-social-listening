@@ -211,9 +211,8 @@ export class AnalyticsService {
   async overview(projectId: number, dto: MentionFilterDto) {
     const f = await this.filters.resolve(projectId, dto);
     const mx = M(f);
-    const [r, prev, b, channels] = await Promise.all([
-      this.repo.overview(f),
-      this.repo.overview(previousOf(f)),
+    const [{ now: r, prev }, b, channels] = await Promise.all([
+      this.repo.overviewWithPrevious(f, previousOf(f)),
       this.repo.breakdown(f),
       this.repo.byChannel(f),
     ]);
