@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -9,7 +10,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsOptional, ValidateNested } from 'class-validator';
-import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
+import { type AuthUser, CurrentUser } from '../../common/auth.js';
 import { RateLimit } from '../../common/rate-limit.js';
 import { MentionFilterDto } from '../mentions/mention-filter.js';
 import { InsightsService } from './insights.service.js';
@@ -27,11 +28,13 @@ export class InsightsController {
   constructor(private readonly insights: InsightsService) {}
 
   @Get()
+  @RequirePermission('insights.view')
   list(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.insights.list(projectId);
   }
 
   @Get(':insightId')
+  @RequirePermission('insights.view')
   get(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('insightId', ParseIntPipe) insightId: number,
@@ -41,7 +44,7 @@ export class InsightsController {
 
   /** Generates a briefing for the filter's period (20-60 s). Viewers can read, not generate. */
   @Post()
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('insights.generate')
   @RateLimit(10)
   generate(
     @Param('projectId', ParseIntPipe) projectId: number,

@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -5,13 +6,14 @@ import {
   Param,
   ParseIntPipe,
   Put,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, IsArray, IsString, MaxLength } from 'class-validator';
 import {
+  type AuthedRequest,
   type AuthUser,
   CurrentUser,
-  Roles,
   seesAllProjects,
 } from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -40,6 +42,12 @@ export class ProjectsController {
     });
   }
 
+  /** What the signed-in user may see and do in this project; drives the FE menu and 403 screen. */
+  @Get(':projectId/access')
+  access(@Req() req: AuthedRequest) {
+    return { role: req.user!.role, permissions: req.projectPermissions ?? [] };
+  }
+
   @Get(':projectId/brands')
   brands(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.prisma.brand.findMany({
@@ -51,7 +59,7 @@ export class ProjectsController {
 
   /** Replace a brand's keyword aliases. Applies to future uploads; existing mentions are not re-tagged. */
   @Put(':projectId/brands/:brandId/aliases')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   async updateAliases(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('brandId', ParseIntPipe) brandId: number,

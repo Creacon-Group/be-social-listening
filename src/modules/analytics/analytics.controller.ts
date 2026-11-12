@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { MentionFilterDto } from '../mentions/mention-filter.js';
@@ -24,6 +25,7 @@ export class AnalyticsController {
   }
 
   @Get('overview')
+  @RequirePermission('overview.view')
   overview(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -32,6 +34,7 @@ export class AnalyticsController {
   }
 
   @Get('competitors')
+  @RequirePermission('overview.view', 'competitors.view')
   competitors(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -44,6 +47,7 @@ export class AnalyticsController {
 
   /** ?interval=hour|day|week|month|quarter|year (hour only up to 31 days). */
   @Get('trend')
+  @RequirePermission('overview.view', 'insights.view')
   trend(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -53,6 +57,7 @@ export class AnalyticsController {
   }
 
   @Get('channels')
+  @RequirePermission('channels.view')
   channels(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -61,6 +66,7 @@ export class AnalyticsController {
   }
 
   @Get('heatmap')
+  @RequirePermission('demographics.view')
   heatmap(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -77,6 +83,7 @@ export class AnalyticsController {
   }
 
   @Get('influencers')
+  @RequirePermission('overview.view', 'influencers.view')
   influencers(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -100,6 +107,7 @@ export class AnalyticsController {
   }
 
   @Get('demographics')
+  @RequirePermission('demographics.view')
   demographics(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -108,6 +116,7 @@ export class AnalyticsController {
   }
 
   @Get('topics')
+  @RequirePermission('overview.view', 'topics.view')
   topics(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,
@@ -116,6 +125,7 @@ export class AnalyticsController {
   }
 
   @Get('hashtags')
+  @RequirePermission('hashtags.view')
   hashtags(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() filter: MentionFilterDto,

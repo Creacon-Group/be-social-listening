@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   BadRequestException,
   Body,
@@ -15,7 +16,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { IsString, MaxLength } from 'class-validator';
-import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
+import { type AuthUser, CurrentUser } from '../../common/auth.js';
 import { PageQueryDto } from '../../common/pagination.js';
 import { IngestionBatchRepository } from './application/ingestion-batch.repository.js';
 import { IngestionService } from './application/ingestion.service.js';
@@ -31,6 +32,7 @@ const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 @ApiTags('ingestion')
+@RequirePermission('data.upload')
 @Controller('projects/:projectId/ingestion')
 export class IngestionController {
   constructor(
@@ -41,7 +43,6 @@ export class IngestionController {
 
   /** Vercel flow: the file is already in Blob storage; start a batch from its URL. */
   @Post('excel')
-  @Roles('ADMIN', 'ANALYST')
   @HttpCode(HttpStatus.ACCEPTED)
   startExcel(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -62,7 +63,6 @@ export class IngestionController {
 
   /** Docker/PM2 flow (and local dev): multipart upload straight to this server. On Vercel the body limit is 4.5 MB. */
   @Post('excel/upload')
-  @Roles('ADMIN', 'ANALYST')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
@@ -104,7 +104,6 @@ export class IngestionController {
   }
 
   @Post('batches/:batchId/resume')
-  @Roles('ADMIN', 'ANALYST')
   @HttpCode(HttpStatus.ACCEPTED)
   resume(
     @Param('projectId', ParseIntPipe) projectId: number,

@@ -13,7 +13,11 @@ export interface AuthUser {
   role: UserRole;
 }
 
-export type AuthedRequest = Request & { user?: AuthUser };
+export type AuthedRequest = Request & {
+  user?: AuthUser;
+  /** Set by ProjectAccessGuard on routes with :projectId. */
+  projectPermissions?: string[];
+};
 
 export const AUTH_COOKIE = 'sl_token';
 

@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -20,7 +21,6 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
-import { Roles } from '../../common/auth.js';
 import { CategoriesService } from './categories.service.js';
 
 class CategoryRulesDto {
@@ -65,7 +65,7 @@ export class CategoriesController {
   }
 
   @Post('preview')
-  @Roles('ADMIN')
+  @RequirePermission('categories.manage')
   @HttpCode(HttpStatus.OK)
   preview(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -75,7 +75,7 @@ export class CategoriesController {
   }
 
   @Post()
-  @Roles('ADMIN')
+  @RequirePermission('categories.manage')
   create(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: CategoryDto,
@@ -84,7 +84,7 @@ export class CategoriesController {
   }
 
   @Put(':categoryId')
-  @Roles('ADMIN')
+  @RequirePermission('categories.manage')
   update(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('categoryId', ParseIntPipe) categoryId: number,
@@ -94,7 +94,7 @@ export class CategoriesController {
   }
 
   @Delete(':categoryId')
-  @Roles('ADMIN')
+  @RequirePermission('categories.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(
     @Param('projectId', ParseIntPipe) projectId: number,

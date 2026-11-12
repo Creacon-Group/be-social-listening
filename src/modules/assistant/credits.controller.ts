@@ -10,9 +10,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  IsArray,
   IsEmail,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   Max,
   MaxLength,
@@ -44,6 +46,12 @@ class CreateUserDto {
   @Min(0)
   @Max(1000)
   dailyChatCredits = 5;
+
+  /** Projects to join. Omitted = every project. */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  projectIds?: number[];
 }
 
 class DailyLimitDto {
@@ -77,7 +85,7 @@ export class CreditsController {
     return this.credits.listUsers();
   }
 
-  /** New user, added to every project (the MVP has one project per client). */
+  /** New user, added to the given projects (or every project when none are given). */
   @Post('admin/users')
   @Roles('SUPERADMIN')
   createUser(@Body() dto: CreateUserDto) {

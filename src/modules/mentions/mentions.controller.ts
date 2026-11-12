@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
@@ -17,6 +18,7 @@ export class MentionsController {
   constructor(private readonly mentions: MentionsService) {}
 
   @Get()
+  @RequirePermission('mentions.view')
   search(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query() q: MentionQueryDto,

@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -39,6 +40,7 @@ class ChatRequestDto {
 }
 
 @ApiTags('assistant')
+@RequirePermission('assistant.use')
 @Controller('projects/:projectId/assistant')
 export class AssistantController {
   constructor(
