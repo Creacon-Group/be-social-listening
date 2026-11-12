@@ -168,11 +168,14 @@ export class ChatCreditsService {
     role: 'ADMIN' | 'ANALYST' | 'VIEWER';
     password: string;
     dailyChatCredits: number;
+    /** Projects to join with the role preset. Omitted = every project (old behaviour). */
+    projectIds?: number[];
   }) {
     const email = dto.email.trim().toLowerCase();
     if (await this.prisma.user.count({ where: { email } }))
       throw new ConflictException('This email already has an account');
     const projects = await this.prisma.project.findMany({
+      where: dto.projectIds ? { id: { in: dto.projectIds } } : {},
       select: { id: true },
     });
     const user = await this.prisma.user.create({

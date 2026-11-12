@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -150,12 +151,13 @@ export class GeoController {
   }
 
   @Get('settings')
+  @RequirePermission('geo.view')
   settings(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.geo.settings(projectId);
   }
 
   @Put('settings')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   updateSettings(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: SettingsDto,
@@ -164,12 +166,13 @@ export class GeoController {
   }
 
   @Get('prompts')
+  @RequirePermission('geo.view')
   prompts(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.geo.prompts(projectId);
   }
 
   @Post('prompts')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   async createPrompt(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: CreatePromptDto,
@@ -179,7 +182,7 @@ export class GeoController {
   }
 
   @Patch('prompts/:id')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   async updatePrompt(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('id', ParseIntPipe) id: number,
@@ -192,7 +195,7 @@ export class GeoController {
 
   /** AI-written draft prompts; they do not run until approved. */
   @Post('prompts/suggest')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   @RateLimit(5)
   suggest(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -202,18 +205,20 @@ export class GeoController {
   }
 
   @Get('estimate')
+  @RequirePermission('geo.view')
   estimate(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.geo.estimate(projectId);
   }
 
   @Get('batches')
+  @RequirePermission('geo.view')
   batches(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.geo.batches(projectId);
   }
 
   /** Start this month's benchmark. Refused (409) when the month already has a batch. */
   @Post('batches')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   @HttpCode(HttpStatus.ACCEPTED)
   start(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -224,7 +229,7 @@ export class GeoController {
 
   /** Manual run outside the monthly schedule; costs one AI credit per prompt (429 when not enough). */
   @Post('adhoc-runs')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   @RateLimit(5)
   @HttpCode(HttpStatus.ACCEPTED)
   adhoc(
@@ -236,6 +241,7 @@ export class GeoController {
   }
 
   @Get('batches/:batchId')
+  @RequirePermission('geo.view')
   batch(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('batchId', ParseIntPipe) batchId: number,
@@ -244,7 +250,7 @@ export class GeoController {
   }
 
   @Post('batches/:batchId/resume')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   @HttpCode(HttpStatus.ACCEPTED)
   resume(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -254,7 +260,7 @@ export class GeoController {
   }
 
   @Post('batches/:batchId/retry-failed')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   @HttpCode(HttpStatus.ACCEPTED)
   retryFailed(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -264,7 +270,7 @@ export class GeoController {
   }
 
   @Post('batches/:batchId/reevaluate')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   @HttpCode(HttpStatus.ACCEPTED)
   reevaluate(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -275,6 +281,7 @@ export class GeoController {
 
   /** Compact AI visibility for the dashboard: latest monthly run not after `to` (YYYY-MM-DD). */
   @Get('summary')
+  @RequirePermission('overview.view', 'insights.view', 'competitors.view', 'geo.view')
   summary(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query('to') to?: string,
@@ -286,6 +293,7 @@ export class GeoController {
   }
 
   @Get('overview')
+  @RequirePermission('geo.view')
   overview(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query('batchId') batchId?: string,
@@ -299,6 +307,7 @@ export class GeoController {
   }
 
   @Get('runs')
+  @RequirePermission('geo.view')
   runs(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Query('batchId') batchId?: string,
@@ -319,6 +328,7 @@ export class GeoController {
   }
 
   @Get('runs/:runId')
+  @RequirePermission('geo.view')
   run(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('runId', ParseIntPipe) runId: number,
@@ -328,7 +338,7 @@ export class GeoController {
 
   /** Analyst correction of an evaluation result. */
   @Patch('results/:resultId')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('geo.manage')
   correct(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('resultId', ParseIntPipe) resultId: number,

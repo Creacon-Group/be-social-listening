@@ -18,6 +18,11 @@ import {
   seesAllProjects,
   ROLES,
 } from './auth.js';
+import {
+  effectivePermissions,
+  type Permission,
+  PERMISSIONS_KEY,
+} from './permissions.js';
 
 function readToken(req: AuthedRequest): string | undefined {
   const header = req.headers.authorization;
@@ -37,6 +42,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(ctx: ExecutionContext) {
@@ -49,20 +55,20 @@ export class JwtAuthGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
     const token = readToken(req);
     if (!token) throw new UnauthorizedException();
+    let payload: AuthUser & { sub: number };
     try {
-      const payload = await this.jwt.verifyAsync<AuthUser & { sub: number }>(
-        token,
-      );
-      req.user = {
-        id: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        role: payload.role,
-      };
-      return true;
+      payload = await this.jwt.verifyAsync<AuthUser & { sub: number }>(token);
     } catch {
       throw new UnauthorizedException();
     }
+    // Role from the database, not the token: role changes and deleted users apply immediately.
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, name: true, role: true },
+    });
+    if (!user) throw new UnauthorizedException();
+    req.user = user;
+    return true;
   }
 }
 
@@ -85,10 +91,17 @@ export class RolesGuard implements CanActivate {
   }
 }
 
-/** Global: any route with a :projectId param requires membership (ADMIN/SUPERADMIN see every project). */
+/**
+ * Global: any route with a :projectId param requires membership (ADMIN/SUPERADMIN see every project),
+ * then enforces @RequirePermission(...) against the member's permissions in that project.
+ * The result is left on req.projectPermissions for GET /projects/:projectId/access.
+ */
 @Injectable()
 export class ProjectAccessGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(ctx: ExecutionContext) {
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
@@ -97,17 +110,30 @@ export class ProjectAccessGuard implements CanActivate {
 
     const projectId = Number(raw);
     if (!Number.isInteger(projectId)) throw new NotFoundException();
+    let stored: unknown = null;
     if (seesAllProjects(req.user.role)) {
       const exists = await this.prisma.project.count({
         where: { id: projectId },
       });
       if (!exists) throw new NotFoundException();
-      return true;
+    } else {
+      const member = await this.prisma.projectMember.findUnique({
+        where: { userId_projectId: { userId: req.user.id, projectId } },
+        select: { permissions: true },
+      });
+      if (!member) throw new NotFoundException(); // do not reveal that the project exists
+      stored = member.permissions;
     }
-    const member = await this.prisma.projectMember.count({
-      where: { projectId, userId: req.user.id },
-    });
-    if (!member) throw new NotFoundException(); // do not reveal that the project exists
+
+    const granted = effectivePermissions(req.user.role, stored);
+    req.projectPermissions = granted;
+
+    const required = this.reflector.getAllAndOverride<Permission[] | undefined>(
+      PERMISSIONS_KEY,
+      [ctx.getHandler(), ctx.getClass()],
+    );
+    if (required?.length && !required.some((p) => granted.includes(p)))
+      throw new ForbiddenException('You do not have access to this feature');
     return true;
   }
 }

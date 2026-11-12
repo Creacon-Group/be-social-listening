@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -32,7 +33,6 @@ import {
   type AuthUser,
   CurrentUser,
   Public,
-  Roles,
 } from '../../common/auth.js';
 import { RateLimit } from '../../common/rate-limit.js';
 import { bearer, sameSecret } from '../../common/secret.js';
@@ -93,6 +93,7 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Get('pdf')
+  @RequirePermission('reports.export')
   @RateLimit(10)
   async pdf(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -108,6 +109,7 @@ export class ReportsController {
   }
 
   @Get('excel')
+  @RequirePermission('reports.export')
   @RateLimit(10)
   async excel(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -122,7 +124,7 @@ export class ReportsController {
   }
 
   @Post('email')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('reports.email')
   @RateLimit(5)
   email(
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -137,7 +139,7 @@ export class ReportsController {
   }
 
   @Put('settings')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   updateSettings(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: ReportSettingsDto,

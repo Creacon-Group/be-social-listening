@@ -21,6 +21,7 @@ import { ProjectsController } from './modules/projects/projects.controller.js';
 import { InsightsModule } from './modules/insights/insights.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 @Controller('health')
 class HealthController {
@@ -50,10 +51,11 @@ class HealthController {
     InsightsModule,
     ReportsModule,
     GeoModule,
+    AdminModule,
   ],
   controllers: [HealthController, AuthController, ProjectsController],
   providers: [
-    // Order matters: rate limit, authenticate, check role, then check project membership.
+    // Order matters: rate limit, authenticate, check role, then check project membership + permissions.
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

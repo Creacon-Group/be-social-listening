@@ -123,8 +123,11 @@ model Project {
 }
 
 model ProjectMember {
-  userId    Int
-  projectId Int
+  userId      Int
+  projectId   Int
+  /// Permission keys for this project (src/common/permissions.ts). null = role preset.
+  permissions Json?
+  createdAt   DateTime @default(now())
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

@@ -1,3 +1,4 @@
+import { RequirePermission } from '../../common/permissions.js';
 import {
   Body,
   Controller,
@@ -20,7 +21,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
+import { type AuthUser, CurrentUser } from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AccountType, Channel } from '../../generated/prisma/enums.js';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -69,6 +70,7 @@ export class AccountsController {
 
   /** Accounts an analyst has classified by hand. */
   @Get('accounts')
+  @RequirePermission('influencers.view')
   list(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.prisma.accountProfile.findMany({
       where: { projectId },
@@ -85,7 +87,7 @@ export class AccountsController {
 
   /** Mark one or many accounts as KOL / Media / Official / Other and/or paid vs organic. */
   @Put('accounts')
-  @Roles('ADMIN', 'ANALYST')
+  @RequirePermission('accounts.tag')
   async tag(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: TagAccountsDto,
@@ -140,7 +142,7 @@ export class AccountsController {
   }
 
   @Put('settings')
-  @Roles('ADMIN')
+  @RequirePermission('settings.manage')
   async updateSettings(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: ProjectSettingsDto,
