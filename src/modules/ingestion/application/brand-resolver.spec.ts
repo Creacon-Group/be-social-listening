@@ -1,7 +1,13 @@
 import { BrandResolver } from './brand-resolver.js';
 
-const prismaWith = (brands: { id: number; name: string; aliases: unknown }[]) =>
-  ({ brand: { findMany: async () => brands } }) as never;
+const prismaWith = (
+  brands: { id: number; name: string; aliases: unknown }[],
+  ignoredKeywords: string[] | null = null,
+) =>
+  ({
+    brand: { findMany: async () => brands },
+    project: { findUnique: async () => ({ ignoredKeywords }) },
+  }) as never;
 
 describe('BrandResolver', () => {
   const brands = [
@@ -32,5 +38,15 @@ describe('BrandResolver', () => {
   it('does not match substrings', async () => {
     const index = await new BrandResolver(prismaWith(brands)).load(1);
     expect(index.resolve(['Activation Tri']).brandIds).toEqual([]);
+  });
+
+  it('does not report ignored keywords as unmatched', async () => {
+    const index = await new BrandResolver(
+      prismaWith(brands, ['#mandirijogjamarathon2026']),
+    ).load(1);
+    expect(index.resolve(['#MandiriJogjaMarathon2026', 'BNI'])).toEqual({
+      brandIds: [],
+      unmatched: ['BNI'],
+    });
   });
 });

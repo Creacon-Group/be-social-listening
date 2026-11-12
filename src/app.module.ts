@@ -17,7 +17,7 @@ import { AssistantModule } from './modules/assistant/assistant.module.js';
 import { AuthController } from './modules/auth/auth.controller.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
 import { MentionsModule } from './modules/mentions/mentions.module.js';
-import { ProjectsController } from './modules/projects/projects.controller.js';
+import { ProjectsModule } from './modules/projects/projects.module.js';
 import { InsightsModule } from './modules/insights/insights.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { GeoModule } from './modules/geo/geo.module.js';
@@ -52,8 +52,9 @@ class HealthController {
     ReportsModule,
     GeoModule,
     AdminModule,
+    ProjectsModule,
   ],
-  controllers: [HealthController, AuthController, ProjectsController],
+  controllers: [HealthController, AuthController],
   providers: [
     // Order matters: rate limit, authenticate, check role, then check project membership + permissions.
     { provide: APP_GUARD, useClass: RateLimitGuard },

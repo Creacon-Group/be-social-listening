@@ -11,6 +11,8 @@ import {
   PERMISSION_CATALOG,
   ROLE_PRESETS,
 } from '../../common/permissions.js';
+import { ignoredSet, keywordKey } from '../../common/keywords.js';
+import { BrandTaggingService } from '../projects/brand-tagging.service.js';
 import type {
   BrandDto,
   CreateProjectDto,
@@ -31,7 +33,10 @@ function conflict(e: unknown, message: string): never {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tagging: BrandTaggingService,
+  ) {}
 
   catalog() {
     return { permissions: PERMISSION_CATALOG, presets: ROLE_PRESETS };
@@ -161,8 +166,9 @@ export class AdminService {
 
   async addBrand(projectId: number, dto: BrandDto) {
     await this.assertProject(projectId);
+    let brand;
     try {
-      return await this.prisma.brand.create({
+      brand = await this.prisma.brand.create({
         data: {
           projectId,
           name: dto.name.trim(),
@@ -174,12 +180,16 @@ export class AdminService {
     } catch (e) {
       conflict(e, 'A brand with this name already exists in the project');
     }
+    // Existing mentions whose keyword matches the new name/aliases count for it right away.
+    await this.tagging.retag(projectId, [brand.id]);
+    return brand;
   }
 
   async updateBrand(projectId: number, brandId: number, dto: UpdateBrandDto) {
     await this.assertBrand(projectId, brandId);
+    let brand;
     try {
-      return await this.prisma.brand.update({
+      brand = await this.prisma.brand.update({
         where: { id: brandId },
         data: {
           name: dto.name?.trim(),
@@ -191,6 +201,64 @@ export class AdminService {
     } catch (e) {
       conflict(e, 'A brand with this name already exists in the project');
     }
+    if (dto.name !== undefined || dto.aliases !== undefined)
+      await this.tagging.retag(projectId, [brandId]);
+    return brand;
+  }
+
+  // ───────── Keywords from the data ─────────
+
+  async keywords(projectId: number) {
+    await this.assertProject(projectId);
+    return this.tagging.keywords(projectId);
+  }
+
+  /** Add a keyword as an alias of a brand and re-tag existing mentions. */
+  async assignKeyword(projectId: number, brandId: number, keyword: string) {
+    await this.assertBrand(projectId, brandId);
+    const brand = await this.prisma.brand.findUniqueOrThrow({
+      where: { id: brandId },
+      select: { name: true, aliases: true },
+    });
+    const aliases = Array.isArray(brand.aliases)
+      ? (brand.aliases as unknown[]).filter(
+          (a): a is string => typeof a === 'string',
+        )
+      : [];
+    const key = keywordKey(keyword);
+    if (
+      keywordKey(brand.name) !== key &&
+      !aliases.some((a) => keywordKey(a) === key)
+    )
+      await this.prisma.brand.update({
+        where: { id: brandId },
+        data: { aliases: [...aliases, keyword.trim()] },
+      });
+    await this.setIgnored(projectId, keyword, false);
+    const [res] = await this.tagging.retag(projectId, [brandId]);
+    return res;
+  }
+
+  /** Mark a keyword as "not a brand" (or undo). */
+  async setIgnored(projectId: number, keyword: string, ignored: boolean) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ignoredKeywords: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    const set = ignoredSet(project.ignoredKeywords);
+    const key = keywordKey(keyword);
+    if (ignored === set.has(key)) return;
+    if (ignored) set.add(key);
+    else set.delete(key);
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { ignoredKeywords: [...set].sort() },
+    });
+  }
+
+  retagAll(projectId: number) {
+    return this.tagging.retag(projectId);
   }
 
   /** Only brands without mentions: deleting one would silently drop data from every chart. */

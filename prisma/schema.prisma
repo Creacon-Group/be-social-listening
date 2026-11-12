@@ -108,6 +108,9 @@ model Project {
   geoRunsPerPrompt Int     @default(1) // independent runs per prompt x model x mode (1..3)
   geoProfile       Json? // { industry, market, language, description, targetName }
 
+  /// Zanroo keywords (lowercased) marked "not a brand": hidden from the unmapped list and upload warnings.
+  ignoredKeywords Json?
+
   members      ProjectMember[]
   brands       Brand[]
   mentions     Mention[]
@@ -208,6 +211,7 @@ model Mention {
   batch      IngestionBatch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
   brands     MentionBrand[]
   categories MentionCategory[]
+  keywords   MentionKeyword[]
 
   @@unique([projectId, externalId]) // ingestion idempotency key
   @@index([projectId, publishedAt])
@@ -229,6 +233,20 @@ model MentionBrand {
   @@id([mentionId, brandId])
   @@index([brandId])
   @@map("mention_brands")
+}
+
+/// Raw Zanroo keywords per mention (lowercased), so brand tags can be recomputed when a
+/// brand or its aliases change, and keywords without a brand can be listed per project.
+model MentionKeyword {
+  mentionId Int
+  projectId Int
+  keyword   String  @db.VarChar(191) // lowercased + trimmed: the match key
+  label     String  @db.VarChar(191) // as Zanroo sent it, for display
+  mention   Mention @relation(fields: [mentionId], references: [id], onDelete: Cascade)
+
+  @@id([mentionId, keyword])
+  @@index([projectId, keyword])
+  @@map("mention_keywords")
 }
 
 // ───────── Ingestion audit trail ─────────
