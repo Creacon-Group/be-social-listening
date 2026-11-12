@@ -3,6 +3,9 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { BatchConfig } from './geo.service.js';
 import { groupKpis, type ResponseRow, topDomains } from './geo-metrics.js';
 
+const monthWib = (d: Date) =>
+  new Date(d.getTime() + 7 * 3600_000).toISOString().slice(0, 7);
+
 /** Read side of GEO: KPIs per model x mode, competitors, cited domains and response drill-down. */
 @Injectable()
 export class GeoAnalyticsService {
@@ -281,6 +284,11 @@ export class GeoAnalyticsService {
       (await this.prisma.geoBatch.findFirst({
         where: { projectId, kind: 'monthly' },
         orderBy: { period: 'desc' },
+      })) ??
+      // No monthly run yet (e.g. a new client): show the latest manual run instead.
+      (await this.prisma.geoBatch.findFirst({
+        where: { projectId, kind: 'adhoc' },
+        orderBy: { startedAt: 'desc' },
       }));
     if (!batch) return null;
     const o = await this.overview(projectId, batch.id);
@@ -289,7 +297,10 @@ export class GeoAnalyticsService {
     return {
       run: {
         id: batch.id,
-        period: batch.period,
+        // Manual runs have no period; use their start month (WIB) so "run {period}" texts still read.
+        period: batch.period ?? monthWib(batch.startedAt),
+        kind: batch.kind,
+        label: batch.label,
         status: batch.status,
         finishedAt: batch.finishedAt,
         prompts: o.batch?.prompts ?? 0,
