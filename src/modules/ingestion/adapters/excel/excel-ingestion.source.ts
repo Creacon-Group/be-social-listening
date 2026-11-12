@@ -49,6 +49,29 @@ const imageLinks = (v: unknown) =>
     .filter((u) => u.startsWith('https://'))
     .slice(0, 4);
 
+/** Date fields of the last row that had them, keyed by its MID. */
+interface ParentRow {
+  id?: string;
+  date?: unknown;
+  time?: unknown;
+  tz?: unknown;
+}
+
+/**
+ * Zanroo writes one row per matched keyword. Only the first row of a MID carries the date;
+ * the following rows (same MID, other keyword/tag) leave it blank, so they inherit it here.
+ */
+export function inheritDate(raw: Record<string, unknown>, parent: ParentRow) {
+  const id = asString(raw.id);
+  if (asString(raw.date)) {
+    Object.assign(parent, { id, date: raw.date, time: raw.time, tz: raw.tz });
+  } else if (id && id === parent.id) {
+    raw.date = parent.date;
+    raw.time = parent.time;
+    raw.tz = parent.tz;
+  }
+}
+
 export interface ExcelSourceInput {
   fileUrl: string; // Vercel Blob URL, or "local:<name>" in Docker/PM2 mode
 }
@@ -75,6 +98,7 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
 
       for await (const sheet of reader) {
         let header: ExcelHeader | undefined;
+        const parent: ParentRow = {};
 
         for await (const row of sheet) {
           const cells = (row.values as unknown[]).map(unwrap); // index starts at 1
@@ -94,7 +118,7 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
           }
           if (cells.every((c) => c === null || c === undefined || c === ''))
             continue; // blank row
-          yield this.toRecord(row.number, cells, header);
+          yield this.toRecord(row.number, cells, header, parent);
         }
         return; // first sheet only
       }
@@ -117,10 +141,12 @@ export class ExcelIngestionSource implements IngestionSource<ExcelSourceInput> {
     rowNo: number,
     cells: unknown[],
     h: ExcelHeader,
+    parent: ParentRow,
   ): SourceRecord {
     const ref = `row ${rowNo}`;
     const raw: Record<string, unknown> = {};
     h.columns.forEach((idx, key) => (raw[key] = cells[idx]));
+    inheritDate(raw, parent);
     const n = (v: unknown) => asNumber(v) ?? 0;
 
     try {
