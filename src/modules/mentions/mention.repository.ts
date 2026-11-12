@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { derivedSet } from './mention-sql.js';
+import { keywordKey } from '../../common/keywords.js';
 import type {
   IngestionContext,
   ResolvedMention,
@@ -114,7 +115,7 @@ export class PrismaMentionWriter implements MentionWriter {
           })),
         });
 
-        // Link only rows created by THIS batch, so a skipped duplicate keeps its original brand tags.
+        // Link rows created by THIS batch here; rows that already existed get any missing links in syncKeywords (added, never removed).
         const rows = await tx.mention.findMany({
           where: {
             projectId: ctx.projectId,
@@ -150,6 +151,7 @@ export class PrismaMentionWriter implements MentionWriter {
     // Outside the transaction: rows that already existed keep their data but get fields added
     // in later versions (preview, gender, region), so re-uploading a file backfills them.
     await this.backfill(ctx.projectId, existing);
+    await this.syncKeywords(ctx.projectId, unique, existing);
     await this.syncDerived(
       ctx.projectId,
       unique.map((i) => i.mention.externalId),
@@ -185,6 +187,66 @@ export class PrismaMentionWriter implements MentionWriter {
       where: { projectId, externalId: { in: externalIds } },
     });
     return count;
+  }
+
+  /**
+   * Store each mention's Zanroo keywords (new and existing rows) so brand tags can be recomputed
+   * later, and add brand links that existing rows are missing. Links are only added here, never
+   * removed: BrandTaggingService.retag recomputes them when a brand changes.
+   */
+  private async syncKeywords(
+    projectId: number,
+    items: ResolvedMention[],
+    existing: ResolvedMention[],
+  ) {
+    const existingIds = new Set(existing.map((e) => e.mention.externalId));
+    for (let i = 0; i < items.length; i += 500) {
+      const part = items.slice(i, i + 500);
+      const rows = await this.prisma.mention.findMany({
+        where: {
+          projectId,
+          externalId: { in: part.map((p) => p.mention.externalId) },
+        },
+        select: { id: true, externalId: true },
+      });
+      const idOf = new Map(rows.map((r) => [r.externalId, r.id]));
+      const keywords = part.flatMap(({ mention: m }) => {
+        const mentionId = idOf.get(m.externalId);
+        if (!mentionId) return [];
+        const seen = new Set<string>();
+        return m.brandKeywords.flatMap((label) => {
+          const keyword = keywordKey(label);
+          if (!keyword || seen.has(keyword)) return [];
+          seen.add(keyword);
+          return [
+            {
+              mentionId,
+              projectId,
+              keyword,
+              label: label.trim().slice(0, 191),
+            },
+          ];
+        });
+      });
+      if (keywords.length)
+        await this.prisma.mentionKeyword.createMany({
+          data: keywords,
+          skipDuplicates: true,
+        });
+      const links = part
+        .filter((p) => existingIds.has(p.mention.externalId))
+        .flatMap(({ mention, brandIds }) => {
+          const mentionId = idOf.get(mention.externalId);
+          return mentionId
+            ? brandIds.map((brandId) => ({ mentionId, brandId }))
+            : [];
+        });
+      if (links.length)
+        await this.prisma.mentionBrand.createMany({
+          data: links,
+          skipDuplicates: true,
+        });
+    }
   }
 
   /** Fill the derived columns (owned, tier, demographics, reactions) of these rows from tags and extra. */

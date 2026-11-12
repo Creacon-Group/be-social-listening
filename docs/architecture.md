@@ -28,7 +28,9 @@ Behaviour:
 
 ## Brand mapping
 
-Zanroo exports have no brand column. Brands are derived from the `Keyword` column: exact, case-insensitive match against each brand's name and `aliases`. A keyword may belong to two brands (e.g. "Indosat Ooredoo Hutchison" → Indosat and Tri; "XLSmart" → XL and Smartfren). Aliases are seeded in `prisma/seed.ts` and editable via `PUT /projects/:id/brands/:brandId/aliases` (future uploads only).
+Zanroo exports have no brand column. Brands are derived from the `Keyword` column: exact, case-insensitive match against each brand's name and `aliases`. A keyword may belong to two brands (e.g. "Indosat Ooredoo Hutchison" → Indosat and Tri; "XLSmart" → XL and Smartfren). Aliases are seeded in `prisma/seed.ts` and editable via `PUT /projects/:id/brands/:brandId/aliases` or the admin brand endpoints.
+
+Every mention's keywords are also stored in `mention_keywords` (lowercased). When a brand is created, renamed or its aliases change, `BrandTaggingService.retag` recomputes that brand's `mention_brands` rows from those keywords, so existing data follows the new mapping without a re-upload. `GET /admin/projects/:id/keywords` lists every keyword with its mention count and mapped brands; keywords can be assigned to a brand or marked "not a brand" (`projects.ignoredKeywords`, also hidden from upload warnings).
 
 ## Metrics
 

@@ -13,7 +13,9 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
 import {
+  AssignKeywordDto,
   BrandDto,
+  IgnoreKeywordDto,
   CreateProjectDto,
   MemberDto,
   UpdateBrandDto,
@@ -81,6 +83,35 @@ export class AdminController {
     @Param('brandId', ParseIntPipe) brandId: number,
   ) {
     await this.admin.deleteBrand(projectId, brandId);
+  }
+
+  /** Brand tags of all existing mentions recomputed from their stored keywords. */
+  @Post('projects/:projectId/brands/retag')
+  retag(@Param('projectId', ParseIntPipe) projectId: number) {
+    return this.admin.retagAll(projectId);
+  }
+
+  /** Keywords seen in the project's data and which brand (if any) they map to. */
+  @Get('projects/:projectId/keywords')
+  keywords(@Param('projectId', ParseIntPipe) projectId: number) {
+    return this.admin.keywords(projectId);
+  }
+
+  @Post('projects/:projectId/keywords/assign')
+  assignKeyword(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: AssignKeywordDto,
+  ) {
+    return this.admin.assignKeyword(projectId, dto.brandId, dto.keyword);
+  }
+
+  @Post('projects/:projectId/keywords/ignore')
+  @HttpCode(204)
+  async ignoreKeyword(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: IgnoreKeywordDto,
+  ) {
+    await this.admin.setIgnored(projectId, dto.keyword, dto.ignored);
   }
 
   /** Add a user to a project or change their permissions there. */

@@ -17,6 +17,7 @@ import {
   seesAllProjects,
 } from '../../common/auth.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { BrandTaggingService } from './brand-tagging.service.js';
 
 class UpdateAliasesDto {
   @IsArray()
@@ -29,7 +30,10 @@ class UpdateAliasesDto {
 @ApiTags('projects')
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tagging: BrandTaggingService,
+  ) {}
 
   @Get()
   async list(@CurrentUser() user: AuthUser) {
@@ -57,7 +61,7 @@ export class ProjectsController {
     });
   }
 
-  /** Replace a brand's keyword aliases. Applies to future uploads; existing mentions are not re-tagged. */
+  /** Replace a brand's keyword aliases and re-tag existing mentions from their stored keywords. */
   @Put(':projectId/brands/:brandId/aliases')
   @RequirePermission('settings.manage')
   async updateAliases(
@@ -72,6 +76,7 @@ export class ProjectsController {
       where: { id: brandId, projectId },
       data: { aliases },
     });
+    await this.tagging.retag(projectId, [brandId]);
     return this.prisma.brand.findFirstOrThrow({
       where: { id: brandId, projectId },
     });

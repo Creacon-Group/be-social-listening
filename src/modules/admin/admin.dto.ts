@@ -87,3 +87,13 @@ export class UpdateUserDto {
   @IsOptional() @IsIn(['ADMIN', 'ANALYST', 'VIEWER']) role?:
     'ADMIN' | 'ANALYST' | 'VIEWER';
 }
+
+export class AssignKeywordDto {
+  @IsString() @MinLength(1) @MaxLength(191) keyword!: string;
+  @IsInt() brandId!: number;
+}
+
+export class IgnoreKeywordDto {
+  @IsString() @MinLength(1) @MaxLength(191) keyword!: string;
+  @IsBoolean() ignored!: boolean;
+}
