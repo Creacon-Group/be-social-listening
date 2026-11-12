@@ -42,11 +42,11 @@ describe('BrandResolver', () => {
 
   it('does not report ignored keywords as unmatched', async () => {
     const index = await new BrandResolver(
-      prismaWith(brands, ['#mandirijogjamarathon2026']),
+      prismaWith(brands, ['#brandaevent2026']),
     ).load(1);
-    expect(index.resolve(['#MandiriJogjaMarathon2026', 'BNI'])).toEqual({
+    expect(index.resolve(['#BrandAEvent2026', 'Brand B'])).toEqual({
       brandIds: [],
-      unmatched: ['BNI'],
+      unmatched: ['Brand B'],
     });
   });
 });

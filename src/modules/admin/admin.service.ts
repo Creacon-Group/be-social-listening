@@ -267,7 +267,7 @@ export class AdminService {
   /**
    * Delete a brand. Mentions are never deleted, only their tag for this brand.
    * - mergeInto: the brand's name and aliases move to the target brand, its tags too, then
-   *   the target is re-tagged from keywords (e.g. "BANK BRI" into "BRI").
+   *   the target is re-tagged from keywords (e.g. "Brand A Official" into "Brand A").
    * - ignoreKeywords: its name and aliases are marked "not a brand" so they stop showing as
    *   unmapped keywords (for brands that aren't relevant to the project).
    */
