@@ -43,6 +43,32 @@ const backfillPatch = (extra?: Record<string, unknown>) => {
 const withKeywords = (m: ResolvedMention['mention']) =>
   m.brandKeywords.length ? { ...m.extra, keywords: m.brandKeywords } : m.extra;
 
+const union = <T>(a?: T[], b?: T[]) =>
+  a || b ? [...new Set([...(a ?? []), ...(b ?? [])])] : undefined;
+
+export function mergeByExternalId(items: ResolvedMention[]) {
+  const byId = new Map<string, ResolvedMention>();
+  for (const item of items) {
+    const first = byId.get(item.mention.externalId);
+    if (!first) {
+      byId.set(item.mention.externalId, item);
+      continue;
+    }
+    byId.set(item.mention.externalId, {
+      brandIds: union(first.brandIds, item.brandIds)!,
+      mention: {
+        ...first.mention,
+        brandKeywords: union(
+          first.mention.brandKeywords,
+          item.mention.brandKeywords,
+        )!,
+        tags: union(first.mention.tags, item.mention.tags),
+      },
+    });
+  }
+  return [...byId.values()];
+}
+
 @Injectable()
 export class PrismaMentionWriter implements MentionWriter {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,10 +76,9 @@ export class PrismaMentionWriter implements MentionWriter {
   async insertMany(ctx: IngestionContext, items: ResolvedMention[]) {
     if (!items.length) return { inserted: 0, skipped: 0 };
 
-    // The same MID can appear twice in one chunk; keep the first so counts stay honest.
-    const unique = [
-      ...new Map(items.map((i) => [i.mention.externalId, i])).values(),
-    ];
+    // The same MID can appear several times in one chunk (Zanroo: one row per keyword).
+    // Keep one row and merge the brands, keywords and tags of the others into it.
+    const unique = mergeByExternalId(items);
 
     const { count, existing } = await this.prisma.$transaction(
       async (tx) => {
@@ -130,7 +155,7 @@ export class PrismaMentionWriter implements MentionWriter {
       unique.map((i) => i.mention.externalId),
     );
 
-    return { inserted: count, skipped: items.length - count };
+    return { inserted: count, skipped: unique.length - count };
   }
 
   async refreshMetrics(projectId: number, items: ResolvedMention[]) {
