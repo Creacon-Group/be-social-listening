@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { type AuthUser, CurrentUser, Roles } from '../../common/auth.js';
@@ -76,13 +77,19 @@ export class AdminController {
     return this.admin.updateBrand(projectId, brandId, dto);
   }
 
+  /** ?mergeInto=<brandId> moves its keywords and tags to another brand; ?ignoreKeywords=1 marks them "not a brand". */
   @Delete('projects/:projectId/brands/:brandId')
-  @HttpCode(204)
-  async deleteBrand(
+  deleteBrand(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('brandId', ParseIntPipe) brandId: number,
+    @Query('mergeInto', new ParseIntPipe({ optional: true }))
+    mergeInto?: number,
+    @Query('ignoreKeywords') ignoreKeywords?: string,
   ) {
-    await this.admin.deleteBrand(projectId, brandId);
+    return this.admin.deleteBrand(projectId, brandId, {
+      mergeInto,
+      ignoreKeywords: ignoreKeywords === '1' || ignoreKeywords === 'true',
+    });
   }
 
   /** Brand tags of all existing mentions recomputed from their stored keywords. */

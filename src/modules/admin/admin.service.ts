@@ -21,6 +21,9 @@ import type {
   UpdateUserDto,
 } from './admin.dto.js';
 
+const stringList = (v: unknown) =>
+  Array.isArray(v) ? v.filter((a): a is string => typeof a === 'string') : [];
+
 const cleanAliases = (a?: string[]) =>
   a ? [...new Set(a.map((s) => s.trim()).filter(Boolean))] : undefined;
 
@@ -261,15 +264,65 @@ export class AdminService {
     return this.tagging.retag(projectId);
   }
 
-  /** Only brands without mentions: deleting one would silently drop data from every chart. */
-  async deleteBrand(projectId: number, brandId: number) {
+  /**
+   * Delete a brand. Mentions are never deleted, only their tag for this brand.
+   * - mergeInto: the brand's name and aliases move to the target brand, its tags too, then
+   *   the target is re-tagged from keywords (e.g. "BANK BRI" into "BRI").
+   * - ignoreKeywords: its name and aliases are marked "not a brand" so they stop showing as
+   *   unmapped keywords (for brands that aren't relevant to the project).
+   */
+  async deleteBrand(
+    projectId: number,
+    brandId: number,
+    opts: { mergeInto?: number; ignoreKeywords?: boolean } = {},
+  ) {
     await this.assertBrand(projectId, brandId);
-    const used = await this.prisma.mentionBrand.count({ where: { brandId } });
-    if (used)
-      throw new ConflictException(
-        `This brand has ${used} mentions. Rename it or update its keywords instead.`,
+    const source = await this.prisma.brand.findUniqueOrThrow({
+      where: { id: brandId },
+      select: { name: true, aliases: true },
+    });
+    const sourceLabels = [source.name, ...stringList(source.aliases)];
+
+    if (opts.mergeInto !== undefined) {
+      if (opts.mergeInto === brandId)
+        throw new BadRequestException("A brand can't be merged into itself");
+      await this.assertBrand(projectId, opts.mergeInto);
+      const target = await this.prisma.brand.findUniqueOrThrow({
+        where: { id: opts.mergeInto },
+        select: { name: true, aliases: true },
+      });
+      const aliases = stringList(target.aliases);
+      const taken = new Set([target.name, ...aliases].map(keywordKey));
+      for (const label of sourceLabels) {
+        const key = keywordKey(label);
+        if (key && !taken.has(key)) {
+          aliases.push(label.trim());
+          taken.add(key);
+        }
+      }
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.brand.update({
+            where: { id: opts.mergeInto },
+            data: { aliases },
+          });
+          // Tags of mentions without stored keywords (older data) move over as they are.
+          await tx.$executeRaw`
+            INSERT IGNORE INTO mention_brands (mentionId, brandId)
+            SELECT mentionId, ${opts.mergeInto} FROM mention_brands WHERE brandId = ${brandId}`;
+          await tx.brand.delete({ where: { id: brandId } });
+        },
+        { timeout: 120_000 },
       );
+      const [res] = await this.tagging.retag(projectId, [opts.mergeInto]);
+      return { merged: true, ...res };
+    }
+
     await this.prisma.brand.delete({ where: { id: brandId } });
+    if (opts.ignoreKeywords)
+      for (const label of sourceLabels)
+        await this.setIgnored(projectId, label, true);
+    return { merged: false };
   }
 
   // ───────── Members ─────────
