@@ -60,6 +60,13 @@ export class AdminController {
     return this.admin.updateProject(projectId, dto);
   }
 
+  /** Deletes the project with all its mentions, brands, uploads, insights and GEO data. */
+  @Delete('projects/:projectId')
+  @HttpCode(204)
+  async deleteProject(@Param('projectId', ParseIntPipe) projectId: number) {
+    await this.admin.deleteProject(projectId);
+  }
+
   @Post('projects/:projectId/brands')
   addBrand(
     @Param('projectId', ParseIntPipe) projectId: number,

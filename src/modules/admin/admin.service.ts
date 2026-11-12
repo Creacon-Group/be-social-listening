@@ -106,6 +106,7 @@ export class AdminService {
         description: true,
         clientName: true,
         createdAt: true,
+        _count: { select: { mentions: true, batches: true } },
         brands: {
           orderBy: [{ isOwn: 'desc' }, { name: 'asc' }],
           select: {
@@ -127,8 +128,11 @@ export class AdminService {
       },
     });
     if (!p) throw new NotFoundException('Project not found');
+    const { _count, ...rest } = p;
     return {
-      ...p,
+      ...rest,
+      mentionCount: _count.mentions,
+      batchCount: _count.batches,
       brands: p.brands.map(({ _count, ...b }) => ({
         ...b,
         mentionCount: _count.mentions,
@@ -163,6 +167,45 @@ export class AdminService {
       conflict(e, 'Slug is already used');
     }
     return this.getProject(projectId);
+  }
+
+  /**
+   * Delete a project and everything in it. Mentions and row errors go in chunks first: one
+   * cascading DELETE over hundreds of thousands of rows would exceed TiDB's transaction limits.
+   * Safe to call again if it stops halfway (e.g. a function timeout).
+   */
+  async deleteProject(projectId: number) {
+    await this.assertProject(projectId);
+    const CHUNK = 5000;
+    for (;;) {
+      const rows = await this.prisma.mention.findMany({
+        where: { projectId },
+        select: { id: true },
+        take: CHUNK,
+      });
+      if (!rows.length) break;
+      await this.prisma.mention.deleteMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+      });
+    }
+    const batches = await this.prisma.ingestionBatch.findMany({
+      where: { projectId },
+      select: { id: true },
+    });
+    for (const b of batches) {
+      for (;;) {
+        const errs = await this.prisma.ingestionRowError.findMany({
+          where: { batchId: b.id },
+          select: { id: true },
+          take: CHUNK,
+        });
+        if (!errs.length) break;
+        await this.prisma.ingestionRowError.deleteMany({
+          where: { id: { in: errs.map((e) => e.id) } },
+        });
+      }
+    }
+    await this.prisma.project.delete({ where: { id: projectId } });
   }
 
   // ───────── Brands ─────────
