@@ -81,6 +81,13 @@ const ACCOUNT_TYPE = Prisma.sql`COALESCE(MAX(ap.accountType), CASE
   WHEN MAX(m.tierRank) > 0 THEN 'KOL'
   ELSE 'OTHER' END)`;
 
+/**
+ * For queries that group many rows by author or host: TiDB otherwise picks a full table scan
+ * once the period covers a large share of the table (EXPLAIN ANALYZE on production: ~800 ms
+ * full scan vs ~400 ms reading the period through this index).
+ */
+const BY_DATE = Prisma.raw('USE INDEX (mentions_agg_idx)');
+
 /** Read side: aggregate SQL kept in one place. Every query is scoped by projectId and the resolved filter. */
 @Injectable()
 export class AnalyticsRepository {
@@ -351,7 +358,7 @@ export class AnalyticsRepository {
              MAX(ap.accountType) AS manualType,
              MAX(m.tierRank) AS tierRank,
              MAX(ap.isPaid) AS isPaid
-      FROM mentions m
+      FROM mentions m ${BY_DATE}
       LEFT JOIN account_profiles ap
         ON ap.projectId = m.projectId AND ap.channel = m.channel AND ap.handle = m.authorHandle
       WHERE ${this.where(f)} ${this.brandExists(f)} AND m.authorHandle IS NOT NULL AND m.authorHandle <> ''
@@ -380,7 +387,7 @@ export class AnalyticsRepository {
       FROM (
         SELECT REPLACE(LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(m.url, '://', -1), '/', 1), '?', 1)), 'www.', '') AS host,
                m.channel, m.sentimentLabel, m.reach, m.engagements
-        FROM mentions m
+        FROM mentions m ${BY_DATE}
         WHERE ${this.where(f)} ${this.brandExists(f)} AND m.url IS NOT NULL
       ) s
       GROUP BY s.host
